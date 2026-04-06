@@ -1,135 +1,232 @@
-# repo-template
+# Three-D Stack (3DS)
 
-NCチームで使用する開発環境のテンプレートです．
+> The definitive **Docker · Dewy · DVB** stack for any infrastructure.
 
-## セットアップ
-
-### 1. ブランチ保護ルールの設定（Rulesets）
-
-`main` ブランチへの直接プッシュを禁止し，プルリクエスト経由のマージを強制します．
-GitHub の新しい **Rulesets** を使用して設定します．
-
-#### 設定手順
-
-1. GitHub リポジトリの **Settings** > **Rules** > **Rulesets** を開く
-2. **New ruleset** > **New branch ruleset** をクリック
-3. 以下を設定して **Save changes** をクリックする
-
-#### Ruleset 設定内容
-
-| 項目 | 値 |
-| --- | --- |
-| Ruleset name | `pullreq`（任意） |
-| Enforcement status | Active |
-| Target branches | Default branch（`main`） |
-
-#### Bypass list
-
-| ロール | 許可内容 |
-| --- | --- |
-| Organization admin | Allow for pull requests only |
-| Repository admin | Always allow |
-
-#### 有効にするルール
-
-| ルール | 説明 |
-| --- | --- |
-| Restrict deletions | ブランチの誤削除を防ぐ |
-| Require a pull request before merging | マージ前に PR を必須にする |
-| Require status checks to pass | CI テストが通過しないとマージ不可 |
-| Block force pushes | 履歴の強制書き換えを禁止する |
-| Automatically request Copilot code review | PR 作成時に Copilot によるコードレビューを自動リクエストする |
+3DS is a portable, infrastructure-agnostic container platform that runs inside any Linux VM.  
+No Kubernetes. No vendor lock-in. Just three well-chosen tools working together.
 
 ---
 
-### 2. 開発環境のセットアップ（Dev Container）
+## What is 3DS?
 
-Dev Container を使用することで，チーム全員が同一の開発環境を再現できます．
+3DS wires together three open-source tools into a cohesive deployment platform:
 
-#### 前提条件
+| Component | Role |
+|---|---|
+| **[Dewy](https://github.com/linyows/dewy)** | Pull-based declarative deploy engine |
+| **[Docker](https://www.docker.com/)** | Container runtime & volume management |
+| **[docker-volume-backup (DVB)](https://github.com/offen/docker-volume-backup)** | Container volume backup & restore |
 
-- [Docker](https://www.docker.com/products/docker-desktop/) がインストール済みであること
-- [Visual Studio Code](https://code.visualstudio.com/) がインストール済みであること
-- VS Code 拡張機能 [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) がインストール済みであること
+The stack deliberately lives _inside_ the VM layer. Proxmox HA, AWS Auto Scaling, or any other infrastructure-level resilience mechanism sits below and handles node-level concerns independently. 3DS owns everything from the container runtime upward.
 
-#### 手順
-
-1. VS Code でリポジトリのルートディレクトリを開く
-2. コマンドパレットを開く（`Cmd+Shift+P` / `Ctrl+Shift+P`）
-3. `Dev Containers: Reopen in Container` を選択する
-4. コンテナのビルドが完了するまで待つ
-
-コンテナ起動後は，`.devcontainer/devcontainer.json` に定義された環境が自動的に適用されます．
-
----
-
-### 3. チケット駆動開発のブランチ運用
-
-GitHub Issues をチケットとして使用し，1 チケット 1 ブランチで作業を管理します．
-
-#### ブランチ運用フロー
-
-```text
-main
- └─ dev
-     └─ feat/*** ─── 作業 ─── PR ──→ dev ─── PR ──→ main
+```
+┌─────────────────────────────────────┐
+│         OCI Registry                │  ← GHCR / ECR / GAR / Docker Hub
+│  (any semver-tagged image source)   │
+└──────────────────┬──────────────────┘
+                   │ pull on new tag
+┌──────────────────▼──────────────────┐
+│              Dewy                   │  ← declarative deploy engine
+│  rolling update · blue/green · hook │
+└──────────────────┬──────────────────┘
+                   │ docker run
+┌──────────────────▼──────────────────┐
+│             Docker                  │  ← container runtime
+│       containers · volumes          │
+└──────────────────┬──────────────────┘
+                   │ before-deploy-hook / scheduled
+┌──────────────────▼──────────────────┐
+│   docker-volume-backup (DVB)        │  ← volume snapshot & backup
+│  pre-deploy snapshot · S3 / SSH     │
+└─────────────────────────────────────┘
+       ↕ any infrastructure below
+  (Proxmox / EC2 / bare metal / etc.)
 ```
 
-##### feat/\*\*\* → dev（日常の開発）
+---
 
-1. GitHub Issues で `[FEAT]` チケットを作成する
-2. `dev` ブランチから `feat/***` ブランチを切る（ブランチ名はチケットに記載）
-3. `feat/***` ブランチで作業を行う
-4. 作業完了後，`feat/***` から `dev` へ PR を作成してマージする
+## Features
 
-##### dev → main（リリース）
+### Dewy — declarative deploy engine
 
-`dev` から `main` へマージするには，以下の条件をすべて満たす必要があります．
+- **Pull-based reconciliation** — Dewy continuously polls your OCI registry and deploys the latest semver-tagged image automatically. No push webhooks needed.
+- **Zero-downtime rolling updates** — new container starts, passes a health check, then traffic shifts via Docker network alias before the old container drains and stops.
+- **Blue/Green deployment** — control deployment slots using semver build metadata (`v1.2.0+blue`, `v1.2.0+green`) and the `--slot` flag. Flip traffic between slots without touching the running workload.
+- **Replica management** — `--replicas N` runs multiple instances of a container on a single node.
+- **Health checks** — `--health-path /health` gates traffic cutover on an HTTP 200 response.
+- **Deploy hooks** — `--before-deploy-hook` and `--after-deploy-hook` execute shell scripts at defined lifecycle points. A failing before-hook aborts the deploy automatically.
+- **Built-in notifications** — Slack and SMTP support out of the box. Error notifications are rate-limited to prevent alert fatigue.
+- **Audit log** — every successful deploy is recorded back to the registry.
 
-| 条件 | 状態 |
-| --- | --- |
-| CI テストが全て通過していること | 必須 |
-| CD によるステージング環境へのデプロイが成功していること | 予定 |
-| 開発者がログ・メトリクス・トレースの取得を確認していること | 予定 |
+### Docker — container runtime
+
+- Named volumes persist data across container updates managed by Dewy.
+- Docker network aliases enable instantaneous traffic cutover between old and new containers.
+- All standard `docker run` options (`-e`, `-v`, `--cpus`, `--memory`, etc.) pass through Dewy's `--` separator.
+
+### docker-volume-backup — volume protection
+
+- **Pre-deploy snapshots** — triggered by Dewy's `before-deploy-hook` to capture a point-in-time archive of volumes before any change lands.
+- **Scheduled backups** — runs as a companion container on a cron schedule defined via environment variable.
+- **Multiple backends** — local directory, S3-compatible storage, WebDAV, Azure Blob, Dropbox, Google Drive, or SSH.
+- **GPG encryption** — optional at-rest encryption for sensitive volumes.
+- **Retention management** — automatic rotation of old archives.
+- **Selective container stop** — attach `docker-volume-backup.stop-during-backup=true` to containers that require consistency (e.g. databases). All other containers continue running.
+
+> **Note on databases:** PostgreSQL, MySQL, and similar engines write data across multiple files. Copying a live data directory can produce an inconsistent snapshot. Use `stop-during-backup=true` for database containers, or add a `pg_dump` / `mysqldump` call inside `before-deploy.sh` and back up the dump file instead.
 
 ---
 
-### 4. コミットメッセージテンプレートの設定
+## Getting Started
 
-`.gitmessage` をコミットメッセージのテンプレートとして使用します．
-リポジトリをクローン後，以下のコマンドを **1回だけ** 実行してください．
+### Prerequisites
+
+- A Linux VM with Docker installed
+- An OCI-compatible container registry (GHCR, ECR, GAR, Docker Hub, or self-hosted)
+- Dewy binary ([releases](https://github.com/linyows/dewy/releases))
+
+### 1. Configure Dewy
 
 ```bash
-git config commit.template .gitmessage
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxx   # or registry credentials
+
+dewy container \
+  --registry img://ghcr.io/your-org/your-app \
+  --port 8080 \
+  --health-path /health \
+  --replicas 2 \
+  --before-deploy-hook "./hooks/before-deploy.sh" \
+  --after-deploy-hook  "./hooks/after-deploy.sh" \
+  --notifier "slack://your-channel?title=your-app" \
+  -- -e DATABASE_URL=postgres://db:5432/mydb \
+     -v app-data:/data
 ```
 
-設定後は `git commit` を実行すると，以下のテンプレートがエディタに表示されます．
+### 2. Add docker-volume-backup as a companion container
 
-```text
-# feat | fix | docs | refactor | test | chore
-<type>: <subject>
+```yaml
+# compose/backup.compose.yml
+services:
+  backup:
+    image: offen/docker-volume-backup:latest
+    restart: always
+    environment:
+      BACKUP_CRON_EXPRESSION: "0 2 * * *"
+      AWS_S3_BUCKET_NAME: your-backup-bucket
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    volumes:
+      - app-data:/backup/app-data:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./backups:/archive
 
-Refs: #
+volumes:
+  app-data:
 ```
 
-| type | 用途 |
-| --- | --- |
-| `feat` | 新機能の追加 |
-| `fix` | バグ修正 |
-| `docs` | ドキュメントのみの変更 |
-| `refactor` | 機能変更を伴わないコード改善 |
-| `test` | テストの追加・修正 |
-| `chore` | ビルド・設定などの雑務 |
+### 3. Wire DVB into the deploy lifecycle
+
+```bash
+# hooks/before-deploy.sh
+#!/bin/sh
+# Capture a point-in-time snapshot before every deploy.
+docker run --rm \
+  -v app-data:/backup/app-data:ro \
+  -v "$(pwd)/backups:/archive" \
+  --env BACKUP_FILENAME="pre-deploy-$(date +%Y%m%dT%H%M%S)" \
+  offen/docker-volume-backup:latest
+```
+
+```bash
+# hooks/after-deploy.sh
+#!/bin/sh
+echo "Deploy complete at $(date)" | \
+  mail -s "Deploy success" ops@example.com
+```
 
 ---
 
-#### RACI
+## Blue/Green Deployment
 
-各チケットには以下の役割を記載します．**R はチケット作成者自身**が担います．
+Tag your releases with build metadata to target a specific deployment slot:
 
-| 役割 | 説明 |
-| --- | --- |
-| R: 実行責任者 (Responsible) | 実際に作業を行う人．チケット作成者が担当する |
-| A: 説明責任者 (Accountable) | 成果物に対して最終責任を持つ人 |
-| C: 協業先 (Consulted) | 作業に際して相談・協力を求める人 |
-| I: 報告先 (Informed) | 進捗・完了を報告する人 |
+```bash
+# Deploy v1.2.0 to the green slot only
+gh release create v1.2.0+green
+
+# Start Dewy with --slot to filter by slot
+dewy container --registry img://ghcr.io/your-org/app --slot green ...
+dewy container --registry img://ghcr.io/your-org/app --slot blue  ...
+```
+
+Workflow:
+
+1. Both slots run the current stable version (`v1.1.0+blue`, `v1.1.0+green`).
+2. Release `v1.2.0+green` — only the green Dewy instance updates.
+3. Validate green. Switch load balancer traffic to green.
+4. Release `v1.2.0+blue` — blue catches up. Both slots now run `v1.2.0`.
+
+---
+
+## Repository Layout
+
+```
+three-d-stack/
+├── compose/
+│   ├── app.compose.yml          # application service template
+│   └── backup.compose.yml       # DVB companion container
+├── dewy/
+│   ├── dewy.env.example         # environment variable reference
+│   └── start.sh                 # Dewy startup helper
+├── hooks/
+│   ├── before-deploy.sh         # pre-deploy DVB snapshot
+│   └── after-deploy.sh          # post-deploy notification / migration
+├── docs/
+│   ├── getting-started.md
+│   ├── blue-green.md
+│   ├── backup-restore.md
+│   └── infrastructure-notes.md  # Proxmox / cloud setup (out of core scope)
+└── README.md
+```
+
+---
+
+## Scope
+
+3DS is intentionally scoped to the **VM-internal layer**.
+
+| Concern | Owner |
+|---|---|
+| Container deploy lifecycle | Dewy |
+| Container runtime & volumes | Docker |
+| Volume backup & pre-deploy snapshots | docker-volume-backup |
+| Node-level failover | Your infrastructure (Proxmox HA, ASG, etc.) |
+| VM-level backup & snapshots | Your infrastructure (PBS, AWS Snapshots, etc.) |
+| Service discovery / load balancing | Your infrastructure (Nginx, Traefik, etc.) |
+
+This boundary means 3DS runs identically on Proxmox VE, AWS EC2, a Hetzner VPS, or a bare-metal server. Infrastructure-specific setup lives in `docs/infrastructure-notes.md` and is never a dependency of the core stack.
+
+---
+
+## Limitations
+
+- **Single-node replica management only** — Dewy's `--replicas` runs multiple containers on one VM. Cross-node scheduling requires infrastructure-level orchestration (Proxmox HA, Kubernetes, Nomad).
+- **No built-in service discovery** — use Nginx, Traefik, or a similar reverse proxy in front of the stack.
+- **No secrets management** — inject secrets via environment variables or mount from a secrets manager (HashiCorp Vault, AWS SSM, etc.).
+- **Database backup consistency** — live volume copy is not crash-consistent for most databases. Use `stop-during-backup=true` or database-native dump hooks.
+
+---
+
+## License
+
+MIT
+
+---
+
+## Acknowledgements
+
+3DS stands on the shoulders of three excellent open-source projects:
+
+- [linyows/dewy](https://github.com/linyows/dewy) — declarative deployment for non-Kubernetes environments
+- [Docker](https://www.docker.com/) — the container runtime the world runs on
+- [offen/docker-volume-backup](https://github.com/offen/docker-volume-backup) — simple, reliable Docker volume backups
