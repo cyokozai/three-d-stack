@@ -2,7 +2,7 @@
 
 > The definitive **Docker · Dewy · DVB** stack for any infrastructure.
 
-3DS is a portable, infrastructure-agnostic container platform that runs inside any Linux VM.  
+3DS is a portable, infrastructure-agnostic container platform that runs inside any Linux VM.
 No Kubernetes. No vendor lock-in. Just three well-chosen tools working together.
 
 ---
@@ -19,28 +19,31 @@ No Kubernetes. No vendor lock-in. Just three well-chosen tools working together.
 
 The stack deliberately lives _inside_ the VM layer. Proxmox HA, AWS Auto Scaling, or any other infrastructure-level resilience mechanism sits below and handles node-level concerns independently. 3DS owns everything from the container runtime upward.
 
-```
-┌─────────────────────────────────────┐
-│         OCI Registry                │  ← GHCR / ECR / GAR / Docker Hub
-│  (any semver-tagged image source)   │
-└──────────────────┬──────────────────┘
-                   │ pull on new tag
-┌──────────────────▼──────────────────┐
-│              Dewy                   │  ← declarative deploy engine
-│  rolling update · blue/green · hook │
-└──────────────────┬──────────────────┘
-                   │ docker run
-┌──────────────────▼──────────────────┐
-│             Docker                  │  ← container runtime
-│       containers · volumes          │
-└──────────────────┬──────────────────┘
-                   │ before-deploy-hook / scheduled
-┌──────────────────▼──────────────────┐
-│   docker-volume-backup (DVB)        │  ← volume snapshot & backup
-│  pre-deploy snapshot · S3 / SSH     │
-└─────────────────────────────────────┘
-       ↕ any infrastructure below
-  (Proxmox / EC2 / bare metal / etc.)
+```mermaid
+graph TD
+    OCI["OCI Registry
+    GHCR / ECR / GAR / Docker Hub
+    any semver-tagged image source"]
+
+    Dewy["Dewy
+    declarative deploy engine
+    rolling update · blue/green · hook"]
+
+    Docker["Docker
+    container runtime
+    containers · volumes"]
+
+    DVB["docker-volume-backup
+    volume snapshot & backup
+    pre-deploy snapshot · S3 / SSH"]
+
+    Infra(["any infrastructure below
+    Proxmox / EC2 / bare metal / etc."])
+
+    OCI     -->|"pull on new tag"| Dewy
+    Dewy    -->|"docker run"| Docker
+    Docker  -->|"before-deploy-hook / scheduled"| DVB
+    DVB    <-->|"node-level failover"| Infra
 ```
 
 ---
@@ -85,64 +88,61 @@ The stack deliberately lives _inside_ the VM layer. Proxmox HA, AWS Auto Scaling
 - An OCI-compatible container registry (GHCR, ECR, GAR, Docker Hub, or self-hosted)
 - Dewy binary ([releases](https://github.com/linyows/dewy/releases))
 
-### 1. Configure Dewy
+> **Using Ansible?** See [ansible/](ansible/) to provision a VM and deploy apps in one command.
+
+### 1. Create your app directory
+
+Copy the sample template and rename it for your application:
+
+```bash
+cp -r apps/sample-app apps/my-app
+cd apps/my-app
+cp dewy.env.example dewy.env
+```
+
+### 2. Configure `dewy.env`
+
+Edit `dewy.env` with your registry URL, port, and any extra `docker run` arguments:
+
+```bash
+# apps/my-app/dewy.env
+DEWY_REGISTRY=img://ghcr.io/your-org/your-app
+DEWY_PORT=8080
+DEWY_HEALTH_PATH=/health
+DEWY_REPLICAS=2
+DEWY_BEFORE_DEPLOY_HOOK=./hooks/before-deploy.sh
+DEWY_AFTER_DEPLOY_HOOK=./hooks/after-deploy.sh
+DEWY_NOTIFIER=slack://your-channel?title=your-app
+DEWY_EXTRA_ARGS="-v app-data:/data --memory 512m"
+```
+
+> `dewy.env` is gitignored. `dewy.env.example` is the committed template.
+
+### 3. Start peripheral services
+
+Launch the database and DVB backup daemon with Docker Compose:
+
+```bash
+docker compose up -d
+```
+
+### 4. Start Dewy
 
 ```bash
 export GITHUB_TOKEN=ghp_xxxxxxxxxxxx   # or registry credentials
 
 dewy container \
-  --registry img://ghcr.io/your-org/your-app \
-  --port 8080 \
-  --health-path /health \
-  --replicas 2 \
-  --before-deploy-hook "./hooks/before-deploy.sh" \
-  --after-deploy-hook  "./hooks/after-deploy.sh" \
-  --notifier "slack://your-channel?title=your-app" \
-  -- -e DATABASE_URL=postgres://db:5432/mydb \
-     -v app-data:/data
+  --registry "${DEWY_REGISTRY}" \
+  --port "${DEWY_PORT}" \
+  --health-path "${DEWY_HEALTH_PATH}" \
+  --replicas "${DEWY_REPLICAS}" \
+  --before-deploy-hook "${DEWY_BEFORE_DEPLOY_HOOK}" \
+  --after-deploy-hook  "${DEWY_AFTER_DEPLOY_HOOK}" \
+  --notifier "${DEWY_NOTIFIER}" \
+  -- ${DEWY_EXTRA_ARGS}
 ```
 
-### 2. Add docker-volume-backup as a companion container
-
-```yaml
-# compose/backup.compose.yml
-services:
-  backup:
-    image: offen/docker-volume-backup:latest
-    restart: always
-    environment:
-      BACKUP_CRON_EXPRESSION: "0 2 * * *"
-      AWS_S3_BUCKET_NAME: your-backup-bucket
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-    volumes:
-      - app-data:/backup/app-data:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./backups:/archive
-
-volumes:
-  app-data:
-```
-
-### 3. Wire DVB into the deploy lifecycle
-
-```bash
-# hooks/before-deploy.sh
-#!/bin/sh
-# Capture a point-in-time snapshot before every deploy.
-docker run --rm \
-  -v app-data:/backup/app-data:ro \
-  -v "$(pwd)/backups:/archive" \
-  --env BACKUP_FILENAME="pre-deploy-$(date +%Y%m%dT%H%M%S)" \
-  offen/docker-volume-backup:latest
-```
-
-```bash
-# hooks/after-deploy.sh
-#!/bin/sh
-echo "Deploy complete at $(date)" | \
-  mail -s "Deploy success" ops@example.com
-```
+> In production, Dewy runs as a systemd service. The Ansible `dewy_setup` role handles this automatically.
 
 ---
 
@@ -172,22 +172,37 @@ Workflow:
 
 ```
 three-d-stack/
-├── compose/
-│   ├── app.compose.yml          # application service template
-│   └── backup.compose.yml       # DVB companion container
-├── dewy/
-│   ├── dewy.env.example         # environment variable reference
-│   └── start.sh                 # Dewy startup helper
-├── hooks/
-│   ├── before-deploy.sh         # pre-deploy DVB snapshot
-│   └── after-deploy.sh          # post-deploy notification / migration
+├── apps/                          # One directory per application
+│   └── sample-app/
+│       ├── dewy.env.example       # Dewy config template (copy → dewy.env)
+│       ├── hooks/
+│       │   ├── before-deploy.sh   # Pre-deploy DVB snapshot
+│       │   └── after-deploy.sh    # Post-deploy migration / notification
+│       └── compose.yaml           # Peripheral services (DB, DVB, etc.)
+├── core/
+│   └── global-hooks/
+│       ├── backup.sh              # Reusable DVB snapshot helper
+│       └── notify.sh              # Reusable Slack notification helper
+├── ansible/
+│   ├── inventories/               # Local (OrbStack) and Proxmox VE targets
+│   ├── playbooks/                 # setup-node.yml, deploy-app.yml
+│   └── roles/
+│       ├── 3ds_base/              # Docker install & network setup
+│       └── dewy_setup/            # Dewy binary + systemd service per app
 ├── docs/
 │   ├── getting-started.md
 │   ├── blue-green.md
 │   ├── backup-restore.md
-│   └── infrastructure-notes.md  # Proxmox / cloud setup (out of core scope)
+│   └── infrastructure-notes.md   # Proxmox / OrbStack setup notes
 └── README.md
 ```
+
+**Role separation:**
+
+| Component | Managed by |
+|---|---|
+| Application container lifecycle | **Dewy** (`docker run`, rolling update, replicas) |
+| Peripheral services (DB, Redis, DVB) | **Docker Compose** (static, long-running) |
 
 ---
 
