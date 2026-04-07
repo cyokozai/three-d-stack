@@ -61,6 +61,33 @@ graph TD
 - **Built-in notifications** — Slack and SMTP support out of the box. Error notifications are rate-limited to prevent alert fatigue.
 - **Audit log** — every successful deploy is recorded back to the registry.
 
+**Deploy lifecycle:**
+
+```mermaid
+sequenceDiagram
+    participant OCI as OCI Registry
+    participant Dewy
+    participant Hook as before-deploy-hook
+    participant Docker
+    participant New as New Container
+
+    loop poll interval
+        Dewy->>OCI: check for new semver tag
+    end
+    OCI-->>Dewy: new tag found
+    Dewy->>Hook: execute before-deploy-hook
+    Note over Hook: DVB snapshot, etc.
+    Hook-->>Dewy: exit 0 (abort deploy if non-zero)
+    Dewy->>Docker: docker run (new container)
+    Docker-->>New: container starts
+    Dewy->>New: GET /health
+    New-->>Dewy: 200 OK
+    Dewy->>Docker: switch network alias to new container
+    Dewy->>Docker: drain & stop old container
+    Dewy->>OCI: record audit log
+    Dewy->>Dewy: execute after-deploy-hook
+```
+
 ### Docker — container runtime
 
 - Named volumes persist data across container updates managed by Dewy.
@@ -161,10 +188,24 @@ dewy container --registry img://ghcr.io/your-org/app --slot blue  ...
 
 Workflow:
 
-1. Both slots run the current stable version (`v1.1.0+blue`, `v1.1.0+green`).
-2. Release `v1.2.0+green` — only the green Dewy instance updates.
-3. Validate green. Switch load balancer traffic to green.
-4. Release `v1.2.0+blue` — blue catches up. Both slots now run `v1.2.0`.
+```mermaid
+sequenceDiagram
+    participant OCI as OCI Registry
+    participant LB as Load Balancer
+    participant Blue as Dewy --slot blue
+    participant Green as Dewy --slot green
+
+    Note over Blue,Green: v1.1.0 stable on both slots
+
+    OCI->>Green: v1.2.0+green tag detected
+    Green->>Green: rolling update → v1.2.0
+    Note over Green: validate green slot
+    LB->>Green: switch traffic to green
+
+    OCI->>Blue: v1.2.0+blue tag detected
+    Blue->>Blue: rolling update → v1.2.0
+    Note over Blue,Green: v1.2.0 stable on both slots
+```
 
 ---
 
