@@ -1,0 +1,72 @@
+# =============================================================================
+# Peripheral services for sample-app
+# =============================================================================
+# This file manages long-running services that support the application:
+# database, cache, backup daemon, etc.
+#
+# The application container itself is managed by Dewy (not defined here).
+# Dewy starts it via docker run and handles rolling updates independently.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — primary database
+  # Use stop-during-backup label so DVB stops this container for a
+  # consistent snapshot. For zero-downtime backups, replace with a
+  # pg_dump call inside hooks/before-deploy.sh instead.
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: sampleapp
+      POSTGRES_USER: sampleapp
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    labels:
+      docker-volume-backup.stop-during-backup: "true"
+    networks:
+      - 3ds-net
+
+  # ---------------------------------------------------------------------------
+  # docker-volume-backup (DVB) — scheduled backup daemon
+  # Runs on a cron schedule. Pre-deploy snapshots are triggered separately
+  # by hooks/before-deploy.sh so that every deploy has a rollback point.
+  #
+  # Backend options (uncomment one):
+  #   S3-compatible: AWS_S3_BUCKET_NAME + credentials
+  #   SSH:           SSH_HOST_NAME + SSH_HOST_USER + SSH_HOST_KEY
+  #   Local only:    leave backends commented out (./backups archive only)
+  # ---------------------------------------------------------------------------
+  backup:
+    image: offen/docker-volume-backup:latest
+    restart: always
+    environment:
+      BACKUP_CRON_EXPRESSION: "0 2 * * *"
+      BACKUP_FILENAME: "backup-%Y-%m-%dT%H-%M-%S.tar.gz"
+      BACKUP_RETENTION_DAYS: "7"
+      # S3-compatible storage (MinIO, AWS S3, Cloudflare R2, etc.)
+      # AWS_S3_BUCKET_NAME: ${BACKUP_S3_BUCKET}
+      # AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      # AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      # AWS_ENDPOINT: ${AWS_ENDPOINT}          # omit for AWS S3
+      # AWS_S3_PATH: backups/sample-app
+    volumes:
+      - db-data:/backup/db-data:ro
+      - app-data:/backup/app-data:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./backups:/archive
+    networks:
+      - 3ds-net
+
+volumes:
+  db-data:
+  app-data:
+
+networks:
+  # 3ds-net is created by the Ansible 3ds_base role.
+  # If running without Ansible, create it manually:
+  #   docker network create 3ds-net
+  3ds-net:
+    external: true
