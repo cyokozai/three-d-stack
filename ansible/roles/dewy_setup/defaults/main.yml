@@ -1,0 +1,9 @@
+---
+# Default variables for dewy_setup.
+# Override in inventories/<env>/group_vars/all.yml
+
+dewy_version: "2.14.0"             # latest stable: https://github.com/linyows/dewy/releases
+dewy_install_dir: "/usr/local/bin"
+dewy_arch: "linux_amd64"           # linux_amd64 | linux_arm64
+dewy_apps: []                      # List of app names to create systemd units for
+                                   # e.g. ["sample-app", "nginx"]

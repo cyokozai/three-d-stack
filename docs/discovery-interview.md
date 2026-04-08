@@ -51,3 +51,4 @@ Dewy is **not** a Docker Compose wrapper. It:
 - `container/manifest/sync/sample.yaml` → **moved to `docs/` or deleted** (manifest sub-command not adopted in core design)
 - README repository layout → **superseded** by `apps/` + `core/` + `ansible/` structure
 - DevContainer → **contributor-focused** (clean room for developing and testing 3DS itself)
+- **VM does not need the repository cloned** — Ansible runs from the control node (local Mac) and pushes all files to the target VM via SSH. The `copy` / `template` modules handle file transfer automatically.

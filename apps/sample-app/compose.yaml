@@ -40,7 +40,7 @@ services:
   #   Local only:    leave backends commented out (./backups archive only)
   # ---------------------------------------------------------------------------
   backup:
-    image: offen/docker-volume-backup:latest
+    image: offen/docker-volume-backup:v2.47.2
     restart: always
     environment:
       BACKUP_CRON_EXPRESSION: "0 2 * * *"

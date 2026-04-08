@@ -17,7 +17,7 @@ docker run --rm \
   -v app-data:/backup/app-data:ro \
   -v "${SCRIPT_DIR}/backups:/archive" \
   -e BACKUP_FILENAME="${BACKUP_LABEL}" \
-  offen/docker-volume-backup:latest
+  offen/docker-volume-backup:v2.47.2
 
 echo "[before-deploy] Snapshot complete: ${BACKUP_LABEL}"
 

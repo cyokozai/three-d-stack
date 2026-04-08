@@ -1,0 +1,22 @@
+---
+# deploy-app.yml — Deploy or update an application on a 3DS node
+#
+# Usage:
+#   ansible-playbook -i inventories/local playbooks/deploy-app.yml \
+#     -e "app_name=sample-app"
+
+- name: Deploy application
+  hosts: three_ds_nodes
+  become: true
+
+  vars:
+    app_name: ""   # Required: pass via -e "app_name=<your-app>"
+
+  pre_tasks:
+    - name: Verify app_name is set
+      ansible.builtin.assert:
+        that: app_name != ""
+        fail_msg: "app_name must be specified. Use -e 'app_name=<your-app>'"
+
+  roles:
+    - role: dewy_setup

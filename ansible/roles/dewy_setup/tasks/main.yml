@@ -1,0 +1,129 @@
+---
+# dewy_setup — Install Dewy binary and create systemd services per app
+
+# ---- Binary installation ----
+
+- name: Set Dewy architecture
+  ansible.builtin.set_fact:
+    dewy_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'x86_64' }}"
+
+- name: Download Dewy binary archive
+  ansible.builtin.get_url:
+    url: "https://github.com/linyows/dewy/releases/download/v{{ dewy_version }}/dewy_linux_{{ dewy_arch }}.tar.gz"
+    dest: "/tmp/dewy_{{ dewy_version }}_linux_{{ dewy_arch }}.tar.gz"
+    mode: "0644"
+
+- name: Create temp directory for extraction
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: dewy
+  register: dewy_tmp
+
+- name: Extract Dewy archive
+  ansible.builtin.unarchive:
+    src: "/tmp/dewy_{{ dewy_version }}_linux_{{ dewy_arch }}.tar.gz"
+    dest: "{{ dewy_tmp.path }}"
+    remote_src: true
+
+- name: Install Dewy binary
+  ansible.builtin.copy:
+    src: "{{ dewy_tmp.path }}/dewy"
+    dest: "{{ dewy_install_dir }}/dewy"
+    mode: "0755"
+    remote_src: true
+
+- name: Clean up temp directory
+  ansible.builtin.file:
+    path: "{{ dewy_tmp.path }}"
+    state: absent
+
+# ---- Per-app deployment ----
+
+- name: Create app directories on VM
+  ansible.builtin.file:
+    path: "{{ three_ds_apps_dir }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ dewy_apps }}"
+
+- name: Create app backups directories on VM
+  ansible.builtin.file:
+    path: "{{ three_ds_apps_dir }}/{{ item }}/backups"
+    state: directory
+    mode: "0755"
+  loop: "{{ dewy_apps }}"
+
+- name: Copy hooks to VM
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../apps/{{ item }}/hooks/"
+    dest: "{{ three_ds_apps_dir }}/{{ item }}/hooks/"
+    mode: "0755"
+  loop: "{{ dewy_apps }}"
+
+- name: Copy compose.yaml to VM
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../apps/{{ item }}/compose.yaml"
+    dest: "{{ three_ds_apps_dir }}/{{ item }}/compose.yaml"
+    mode: "0644"
+  loop: "{{ dewy_apps }}"
+
+- name: Copy dewy.env.example to VM
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../apps/{{ item }}/dewy.env.example"
+    dest: "{{ three_ds_apps_dir }}/{{ item }}/dewy.env.example"
+    mode: "0644"
+  loop: "{{ dewy_apps }}"
+
+- name: Check if dewy.env exists on control node
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/../../apps/{{ item }}/dewy.env"
+  delegate_to: localhost
+  become: false
+  register: dewy_env_stat
+  loop: "{{ dewy_apps }}"
+
+- name: Copy dewy.env to VM (if present on control node)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../apps/{{ item.item }}/dewy.env"
+    dest: "{{ three_ds_apps_dir }}/{{ item.item }}/dewy.env"
+    mode: "0600"
+  loop: "{{ dewy_env_stat.results }}"
+  when: item.stat.exists
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Warn if dewy.env is missing on control node
+  ansible.builtin.debug:
+    msg: >-
+      [WARN] apps/{{ item.item }}/dewy.env not found on control node.
+      Copy apps/{{ item.item }}/dewy.env.example to apps/{{ item.item }}/dewy.env,
+      fill in your values, then re-run this playbook to start the service.
+  loop: "{{ dewy_env_stat.results }}"
+  when: not item.stat.exists
+  loop_control:
+    label: "{{ item.item }}"
+
+# ---- systemd unit ----
+
+- name: Install systemd unit for each app
+  ansible.builtin.template:
+    src: dewy.service.j2
+    dest: "/etc/systemd/system/dewy-{{ item }}.service"
+    mode: "0644"
+  vars:
+    app_name: "{{ item }}"
+  loop: "{{ dewy_apps }}"
+  notify: Reload systemd
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start Dewy services (only if dewy.env exists)
+  ansible.builtin.systemd:
+    name: "dewy-{{ item.item }}.service"
+    state: started
+    enabled: true
+  loop: "{{ dewy_env_stat.results }}"
+  when: item.stat.exists
+  loop_control:
+    label: "{{ item.item }}"

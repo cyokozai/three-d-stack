@@ -1,0 +1,12 @@
+# Variables applied to all hosts in the Proxmox inventory.
+# Values here mirror the local inventory — adjust for production as needed.
+
+# --- 3ds_base ---
+docker_version: "27"
+three_ds_network: "3ds-net"
+three_ds_base_dir: "/opt/3ds"
+
+# --- dewy_setup ---
+dewy_version: "2.14.0"             # latest: v2.14.0
+dewy_install_dir: "/usr/local/bin"
+dewy_apps: []
