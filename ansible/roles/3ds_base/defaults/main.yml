@@ -2,7 +2,6 @@
 # Default variables for 3ds_base.
 # Override in inventories/<env>/group_vars/all.yml or host_vars/<host>.yml
 
-docker_version: "27"
 three_ds_network: "3ds-net"
 three_ds_base_dir: "/opt/3ds"
 three_ds_apps_dir: "{{ three_ds_base_dir }}/apps"

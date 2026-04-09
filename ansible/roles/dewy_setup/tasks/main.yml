@@ -9,11 +9,21 @@
   ansible.builtin.set_fact:
     _dewy_apps: "{{ dewy_apps | from_yaml if dewy_apps is string else dewy_apps }}"
 
+- name: Verify dewy_apps resolved to a list
+  ansible.builtin.assert:
+    that:
+      - _dewy_apps is iterable
+      - _dewy_apps is not string
+    fail_msg: >-
+      dewy_apps must be a list (got {{ _dewy_apps | type_debug }}).
+      Use -e "dewy_apps=['your-app']" — not -e "dewy_apps=your-app".
+
 # ---- Binary installation ----
 
-- name: Set Dewy architecture
+- name: Auto-detect Dewy architecture (skipped when dewy_arch is already set)
   ansible.builtin.set_fact:
     dewy_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'x86_64' }}"
+  when: not dewy_arch
 
 - name: Download Dewy binary archive
   ansible.builtin.get_url:
@@ -21,28 +31,19 @@
     dest: "/tmp/dewy_{{ dewy_version }}_linux_{{ dewy_arch }}.tar.gz"
     mode: "0644"
 
-- name: Create temp directory for extraction
-  ansible.builtin.tempfile:
-    state: directory
-    suffix: dewy
-  register: dewy_tmp
+- name: Extract Dewy binary directly to install dir
+  ansible.builtin.command:
+    cmd: "tar xzf /tmp/dewy_{{ dewy_version }}_linux_{{ dewy_arch }}.tar.gz -C {{ dewy_install_dir }} dewy"
+  changed_when: true
 
-- name: Extract Dewy archive
-  ansible.builtin.unarchive:
-    src: "/tmp/dewy_{{ dewy_version }}_linux_{{ dewy_arch }}.tar.gz"
-    dest: "{{ dewy_tmp.path }}"
-    remote_src: true
-
-- name: Install Dewy binary
-  ansible.builtin.copy:
-    src: "{{ dewy_tmp.path }}/dewy"
-    dest: "{{ dewy_install_dir }}/dewy"
-    mode: "0755"
-    remote_src: true
-
-- name: Clean up temp directory
+- name: Set Dewy binary permissions
   ansible.builtin.file:
-    path: "{{ dewy_tmp.path }}"
+    path: "{{ dewy_install_dir }}/dewy"
+    mode: "0755"
+
+- name: Remove downloaded archive
+  ansible.builtin.file:
+    path: "/tmp/dewy_{{ dewy_version }}_linux_{{ dewy_arch }}.tar.gz"
     state: absent
 
 # ---- Per-app deployment ----

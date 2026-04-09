@@ -4,6 +4,6 @@
 
 dewy_version: "2.14.0"             # latest stable: https://github.com/linyows/dewy/releases
 dewy_install_dir: "/usr/local/bin"
-dewy_arch: "linux_amd64"           # linux_amd64 | linux_arm64
+dewy_arch: ""                      # auto-detected (arm64 | x86_64); override only when needed
 dewy_apps: []                      # List of app names to create systemd units for
                                    # e.g. ["sample-app", "nginx"]

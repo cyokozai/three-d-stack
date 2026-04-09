@@ -15,22 +15,23 @@
     state: directory
     mode: "0755"
 
+- name: Set Docker apt architecture and distribution
+  ansible.builtin.set_fact:
+    docker_apt_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"
+    docker_apt_dist: "{{ ansible_facts['distribution'] | lower }}"
+
 - name: Add Docker GPG key
   ansible.builtin.get_url:
-    url: https://download.docker.com/linux/ubuntu/gpg
+    url: "https://download.docker.com/linux/{{ docker_apt_dist }}/gpg"
     dest: /etc/apt/keyrings/docker.asc
     mode: "0644"
     force: false
-
-- name: Set Docker apt architecture
-  ansible.builtin.set_fact:
-    docker_apt_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"
 
 - name: Add Docker apt repository
   ansible.builtin.apt_repository:
     repo: >-
       deb [arch={{ docker_apt_arch }} signed-by=/etc/apt/keyrings/docker.asc]
-      https://download.docker.com/linux/ubuntu
+      https://download.docker.com/linux/{{ docker_apt_dist }}
       {{ ansible_facts['distribution_release'] }} stable
     filename: docker
     state: present
