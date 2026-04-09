@@ -11,10 +11,11 @@ three-d-stack/
 ├── apps/                          # Per-application directories
 │   └── sample-app/
 │       ├── dewy.env.example       # Dewy config template (committed; copy to dewy.env to use)
-│       ├── hooks/
-│       │   ├── before-deploy.sh   # Trigger DVB snapshot before deploy
-│       │   └── after-deploy.sh    # Post-deploy notification
-│       └── compose.yaml           # Peripheral services (DB, DVB, etc.)
+│       └── backup/                # Optional: DVB backup sub-tree (omit if no backup needed)
+│           ├── hooks/
+│           │   ├── before-deploy.sh   # Trigger DVB snapshot before deploy
+│           │   └── after-deploy.sh    # Post-deploy notification
+│           └── compose.yaml           # Peripheral services (DB, DVB, etc.)
 ├── core/
 │   └── global-hooks/
 │       ├── backup.sh              # Reusable DVB backup logic
@@ -53,8 +54,8 @@ DEWY_REGISTRY=img://ghcr.io/your-org/sample-app
 DEWY_PORT=8080
 DEWY_HEALTH_PATH=/health
 DEWY_REPLICAS=2
-DEWY_BEFORE_DEPLOY_HOOK=./hooks/before-deploy.sh
-DEWY_AFTER_DEPLOY_HOOK=./hooks/after-deploy.sh
+DEWY_BEFORE_DEPLOY_HOOK=./backup/hooks/before-deploy.sh
+DEWY_AFTER_DEPLOY_HOOK=./backup/hooks/after-deploy.sh
 DEWY_NOTIFIER=slack://your-channel?title=sample-app
 
 # Extra args passed to docker run (after Dewy's -- separator)
