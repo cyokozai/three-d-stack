@@ -16,13 +16,15 @@ notify_slack() {
     return 0
   fi
 
-  curl -s -o /dev/null -w "%{http_code}" \
+  # Escape MESSAGE to a valid JSON string (handles quotes, backslashes, newlines)
+  ESCAPED=$(printf '%s' "${MESSAGE}" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+
+  STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     -X POST "${NOTIFY_SLACK_WEBHOOK}" \
     -H "Content-Type: application/json" \
-    --data "{\"text\": \"${MESSAGE}\"}" | {
-    read -r STATUS
-    if [ "${STATUS}" != "200" ]; then
-      echo "[notify] WARNING: Slack webhook returned HTTP ${STATUS}" >&2
-    fi
-  }
+    --data "{\"text\": ${ESCAPED}}")
+
+  if [ "${STATUS}" != "200" ]; then
+    echo "[notify] WARNING: Slack webhook returned HTTP ${STATUS}" >&2
+  fi
 }

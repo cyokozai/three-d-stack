@@ -6,7 +6,7 @@
 # expansions, so DEWY_EXTRA_ARGS="--memory 128m --cpus 0.5" would be passed
 # as a single argument to docker. This shell script handles splitting correctly.
 
-exec {{ dewy_install_dir }}/dewy image \
+exec {{ dewy_install_dir }}/dewy container \
   --registry "${DEWY_REGISTRY}" \
   --port "${DEWY_PORT}" \
   --health-path "${DEWY_HEALTH_PATH}" \

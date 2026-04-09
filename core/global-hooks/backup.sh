@@ -33,7 +33,7 @@ run_backup() {
     ${VOLUME_ARGS} \
     -v "${ARCHIVE_DIR}:/archive" \
     -e BACKUP_FILENAME="${LABEL}" \
-    offen/docker-volume-backup:latest
+    offen/docker-volume-backup:v2.47.2
 
   echo "[backup] Snapshot complete: ${LABEL}"
 }
