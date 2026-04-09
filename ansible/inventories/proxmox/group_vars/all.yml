@@ -2,7 +2,6 @@
 # Values here mirror the local inventory — adjust for production as needed.
 
 # --- 3ds_base ---
-docker_version: "27"
 three_ds_network: "3ds-net"
 three_ds_base_dir: "/opt/3ds"
 

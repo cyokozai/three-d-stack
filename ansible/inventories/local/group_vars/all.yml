@@ -2,7 +2,6 @@
 # Override per-host in host_vars/<hostname>.yml if needed.
 
 # --- 3ds_base ---
-docker_version: "27"               # Docker Engine major version to install
 three_ds_network: "3ds-net"        # Docker bridge network shared by all apps
 three_ds_base_dir: "/opt/3ds"      # Root directory for app configs on the VM
 
