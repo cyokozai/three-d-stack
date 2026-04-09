@@ -15,5 +15,12 @@
   hosts: three_ds_nodes
   become: true
 
+  pre_tasks:
+    - name: Prepare Ansible remote temp directory
+      ansible.builtin.file:
+        path: /tmp/ansible-3ds
+        state: directory
+        mode: "01777"
+
   roles:
     - role: 3ds_base

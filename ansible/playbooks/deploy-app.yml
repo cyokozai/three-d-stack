@@ -15,6 +15,12 @@
   become: true
 
   pre_tasks:
+    - name: Prepare Ansible remote temp directory
+      ansible.builtin.file:
+        path: /tmp/ansible-3ds
+        state: directory
+        mode: "01777"
+
     - name: Verify dewy_apps is set and not empty
       ansible.builtin.assert:
         that:
