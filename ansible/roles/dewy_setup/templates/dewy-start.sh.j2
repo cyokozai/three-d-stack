@@ -1,0 +1,17 @@
+#!/bin/sh
+# Managed by Ansible — do not edit manually.
+# Start script for Dewy container manager: {{ app_name }}
+#
+# Wrapper exists because systemd ExecStart does not word-split variable
+# expansions, so DEWY_EXTRA_ARGS="--memory 128m --cpus 0.5" would be passed
+# as a single argument to docker. This shell script handles splitting correctly.
+
+exec {{ dewy_install_dir }}/dewy image \
+  --registry "${DEWY_REGISTRY}" \
+  --port "${DEWY_PORT}" \
+  --health-path "${DEWY_HEALTH_PATH}" \
+  --replicas "${DEWY_REPLICAS}" \
+  ${DEWY_BEFORE_DEPLOY_HOOK:+--before-deploy-hook} ${DEWY_BEFORE_DEPLOY_HOOK} \
+  ${DEWY_AFTER_DEPLOY_HOOK:+--after-deploy-hook} ${DEWY_AFTER_DEPLOY_HOOK} \
+  ${DEWY_NOTIFIER:+--notifier} ${DEWY_NOTIFIER} \
+  ${DEWY_EXTRA_ARGS:+--} $DEWY_EXTRA_ARGS

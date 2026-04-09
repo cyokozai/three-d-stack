@@ -1,6 +1,14 @@
 ---
 # dewy_setup — Install Dewy binary and create systemd services per app
 
+# ---- Normalize input ----
+# Extra vars (-e) have highest precedence; set_fact cannot override them.
+# Use a private fact _dewy_apps so loop tasks always receive a proper list.
+
+- name: Normalize dewy_apps to list
+  ansible.builtin.set_fact:
+    _dewy_apps: "{{ dewy_apps | from_yaml if dewy_apps is string else dewy_apps }}"
+
 # ---- Binary installation ----
 
 - name: Set Dewy architecture
@@ -44,35 +52,35 @@
     path: "{{ three_ds_apps_dir }}/{{ item }}"
     state: directory
     mode: "0755"
-  loop: "{{ dewy_apps }}"
+  loop: "{{ _dewy_apps }}"
 
 - name: Create app backups directories on VM
   ansible.builtin.file:
     path: "{{ three_ds_apps_dir }}/{{ item }}/backups"
     state: directory
     mode: "0755"
-  loop: "{{ dewy_apps }}"
+  loop: "{{ _dewy_apps }}"
 
 - name: Copy hooks to VM
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../apps/{{ item }}/hooks/"
     dest: "{{ three_ds_apps_dir }}/{{ item }}/hooks/"
     mode: "0755"
-  loop: "{{ dewy_apps }}"
+  loop: "{{ _dewy_apps }}"
 
 - name: Copy compose.yaml to VM
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../apps/{{ item }}/compose.yaml"
     dest: "{{ three_ds_apps_dir }}/{{ item }}/compose.yaml"
     mode: "0644"
-  loop: "{{ dewy_apps }}"
+  loop: "{{ _dewy_apps }}"
 
 - name: Copy dewy.env.example to VM
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../apps/{{ item }}/dewy.env.example"
     dest: "{{ three_ds_apps_dir }}/{{ item }}/dewy.env.example"
     mode: "0644"
-  loop: "{{ dewy_apps }}"
+  loop: "{{ _dewy_apps }}"
 
 - name: Check if dewy.env exists on control node
   ansible.builtin.stat:
@@ -80,7 +88,7 @@
   delegate_to: localhost
   become: false
   register: dewy_env_stat
-  loop: "{{ dewy_apps }}"
+  loop: "{{ _dewy_apps }}"
 
 - name: Copy dewy.env to VM (if present on control node)
   ansible.builtin.copy:
@@ -103,7 +111,16 @@
   loop_control:
     label: "{{ item.item }}"
 
-# ---- systemd unit ----
+# ---- start script + systemd unit ----
+
+- name: Deploy start wrapper script for each app
+  ansible.builtin.template:
+    src: dewy-start.sh.j2
+    dest: "{{ three_ds_apps_dir }}/{{ item }}/dewy-start.sh"
+    mode: "0755"
+  vars:
+    app_name: "{{ item }}"
+  loop: "{{ _dewy_apps }}"
 
 - name: Install systemd unit for each app
   ansible.builtin.template:
@@ -112,7 +129,7 @@
     mode: "0644"
   vars:
     app_name: "{{ item }}"
-  loop: "{{ dewy_apps }}"
+  loop: "{{ _dewy_apps }}"
   notify: Reload systemd
 
 - name: Flush handlers

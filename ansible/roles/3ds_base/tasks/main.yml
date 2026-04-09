@@ -55,6 +55,12 @@
     enabled: true
   ignore_errors: "{{ ansible_check_mode }}"
 
+- name: Add ansible_user to docker group
+  ansible.builtin.user:
+    name: "{{ ansible_user | regex_replace('@.*', '') }}"
+    groups: docker
+    append: true
+
 - name: Create 3DS Docker network
   ansible.builtin.command:
     cmd: docker network create {{ three_ds_network }}
