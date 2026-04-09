@@ -5,6 +5,11 @@
 dewy.env
 backups/
 
+# Ignore all app directories except the sample template
+apps/*
+!apps/sample-app/
+!apps/sample-app/**
+
 
 # ============================== Terraform ============================== #
 
