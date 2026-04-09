@@ -10,7 +10,7 @@ _Date: 2026-04-08_
 three-d-stack/
 ├── apps/                          # Per-application directories
 │   └── sample-app/
-│       ├── dewy.env               # Dewy launch options & env vars
+│       ├── dewy.env.example       # Dewy config template (committed; copy to dewy.env to use)
 │       ├── hooks/
 │       │   ├── before-deploy.sh   # Trigger DVB snapshot before deploy
 │       │   └── after-deploy.sh    # Post-deploy notification
@@ -35,19 +35,20 @@ three-d-stack/
 ├── .github/
 │   ├── ISSUE_TEMPLATE/
 │   └── workflows/
-│       └── lint.yml               # yamllint / shellcheck / ansible-lint
+│       └── lint.yml               # yamllint / shellcheck / ansible-lint (planned: v0.3.0)
 └── README.md
 ```
 
 ---
 
-## Dewy App Configuration Pattern (`dewy.env`)
+## Dewy App Configuration Pattern (`dewy.env.example` / `dewy.env`)
 
-Each app defines its Dewy invocation entirely in `apps/<app>/dewy.env`.
-The Ansible `dewy_setup` role reads this file into a systemd `EnvironmentFile=`.
+Each app ships a committed `apps/<app>/dewy.env.example` template.
+Operators copy it to `dewy.env` (gitignored) and fill in real values.
+The Ansible `dewy_setup` role transfers `dewy.env` to the VM and loads it via systemd `EnvironmentFile=`.
 
 ```bash
-# apps/sample-app/dewy.env
+# apps/sample-app/dewy.env.example
 DEWY_REGISTRY=img://ghcr.io/your-org/sample-app
 DEWY_PORT=8080
 DEWY_HEALTH_PATH=/health

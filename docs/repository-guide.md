@@ -263,12 +263,12 @@ ansible-playbook -i inventories/proxmox playbooks/setup-node.yml
 
 **種別:** Playbook — アプリのデプロイ・更新
 
-`dewy_setup` ロールを適用し、指定アプリのファイルを VM に転送して systemd サービスを起動する。`app_name` 変数は必須。
+`dewy_setup` ロールを適用し、指定アプリのファイルを VM に転送して systemd サービスを起動する。`dewy_apps` 変数（リスト）は必須。
 
 **実行例:**
 ```bash
 ansible-playbook -i inventories/local playbooks/deploy-app.yml \
-  -e "app_name=sample-app"
+  -e "dewy_apps=['sample-app']"
 ```
 
 **実行前提:** `apps/sample-app/dewy.env` がコントロールノードに存在すること。存在しない場合は警告のみでサービスは起動しない。
