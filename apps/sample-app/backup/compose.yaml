@@ -1,11 +1,11 @@
 # =============================================================================
-# Peripheral services for sample-app
+# Backup-related peripheral services for sample-app
 # =============================================================================
-# This file manages long-running services that support the application:
-# database, cache, backup daemon, etc.
-#
+# This file manages the database and backup daemon.
 # The application container itself is managed by Dewy (not defined here).
 # Dewy starts it via docker run and handles rolling updates independently.
+#
+# Start: docker compose -f backup/compose.yaml up -d
 # =============================================================================
 
 services:
@@ -13,7 +13,7 @@ services:
   # PostgreSQL — primary database
   # Use stop-during-backup label so DVB stops this container for a
   # consistent snapshot. For zero-downtime backups, replace with a
-  # pg_dump call inside hooks/before-deploy.sh instead.
+  # pg_dump call inside backup/hooks/before-deploy.sh instead.
   # ---------------------------------------------------------------------------
   db:
     image: postgres:16-alpine
@@ -32,7 +32,7 @@ services:
   # ---------------------------------------------------------------------------
   # docker-volume-backup (DVB) — scheduled backup daemon
   # Runs on a cron schedule. Pre-deploy snapshots are triggered separately
-  # by hooks/before-deploy.sh so that every deploy has a rollback point.
+  # by backup/hooks/before-deploy.sh so that every deploy has a rollback point.
   #
   # Backend options (uncomment one):
   #   S3-compatible: AWS_S3_BUCKET_NAME + credentials

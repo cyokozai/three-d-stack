@@ -19,5 +19,5 @@ echo "[after-deploy] Deploy complete: ${APP_NAME} at ${TIMESTAMP}"
 # --- Notification via global helper (example) ---
 # Reads NOTIFY_SLACK_WEBHOOK from the environment.
 #
-# . "$(dirname "$0")/../../core/global-hooks/notify.sh"
+# . "$(dirname "$0")/../../../core/global-hooks/notify.sh"
 # notify_slack "Deploy complete: ${APP_NAME} at ${TIMESTAMP}"

@@ -55,37 +55,54 @@
     mode: "0755"
   loop: "{{ _dewy_apps }}"
 
-- name: Create app backups directories on VM
+- name: Check if backup/ directory exists on control node (per app)
+  ansible.builtin.stat:
+    path: "{{ apps_dir }}/{{ item }}/backup"
+  delegate_to: localhost
+  become: false
+  register: backup_stat
+  loop: "{{ _dewy_apps }}"
+
+- name: Create backups directory on VM (only for apps with backup/)
   ansible.builtin.file:
-    path: "{{ three_ds_apps_dir }}/{{ item }}/backups"
+    path: "{{ three_ds_apps_dir }}/{{ item.item }}/backup/backups"
     state: directory
     mode: "0755"
-  loop: "{{ _dewy_apps }}"
+  loop: "{{ backup_stat.results }}"
+  when: item.stat.exists and item.stat.isdir
+  loop_control:
+    label: "{{ item.item }}"
 
-- name: Copy hooks to VM
+- name: Copy backup/hooks to VM (only for apps with backup/)
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../apps/{{ item }}/hooks/"
-    dest: "{{ three_ds_apps_dir }}/{{ item }}/hooks/"
+    src: "{{ apps_dir }}/{{ item.item }}/backup/hooks/"
+    dest: "{{ three_ds_apps_dir }}/{{ item.item }}/backup/hooks/"
     mode: "0755"
-  loop: "{{ _dewy_apps }}"
+  loop: "{{ backup_stat.results }}"
+  when: item.stat.exists and item.stat.isdir
+  loop_control:
+    label: "{{ item.item }}"
 
-- name: Copy compose.yaml to VM
+- name: Copy backup/compose.yaml to VM (only for apps with backup/)
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../apps/{{ item }}/compose.yaml"
-    dest: "{{ three_ds_apps_dir }}/{{ item }}/compose.yaml"
+    src: "{{ apps_dir }}/{{ item.item }}/backup/compose.yaml"
+    dest: "{{ three_ds_apps_dir }}/{{ item.item }}/backup/compose.yaml"
     mode: "0644"
-  loop: "{{ _dewy_apps }}"
+  loop: "{{ backup_stat.results }}"
+  when: item.stat.exists and item.stat.isdir
+  loop_control:
+    label: "{{ item.item }}"
 
 - name: Copy dewy.env.example to VM
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../apps/{{ item }}/dewy.env.example"
+    src: "{{ apps_dir }}/{{ item }}/dewy.env.example"
     dest: "{{ three_ds_apps_dir }}/{{ item }}/dewy.env.example"
     mode: "0644"
   loop: "{{ _dewy_apps }}"
 
 - name: Check if dewy.env exists on control node
   ansible.builtin.stat:
-    path: "{{ playbook_dir }}/../../apps/{{ item }}/dewy.env"
+    path: "{{ apps_dir }}/{{ item }}/dewy.env"
   delegate_to: localhost
   become: false
   register: dewy_env_stat
@@ -93,7 +110,7 @@
 
 - name: Copy dewy.env to VM (if present on control node)
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../../apps/{{ item.item }}/dewy.env"
+    src: "{{ apps_dir }}/{{ item.item }}/dewy.env"
     dest: "{{ three_ds_apps_dir }}/{{ item.item }}/dewy.env"
     mode: "0600"
   loop: "{{ dewy_env_stat.results }}"
@@ -104,9 +121,9 @@
 - name: Warn if dewy.env is missing on control node
   ansible.builtin.debug:
     msg: >-
-      [WARN] apps/{{ item.item }}/dewy.env not found on control node.
-      Copy apps/{{ item.item }}/dewy.env.example to apps/{{ item.item }}/dewy.env,
-      fill in your values, then re-run this playbook to start the service.
+      [WARN] {{ apps_dir }}/{{ item.item }}/dewy.env not found on control node.
+      Copy dewy.env.example to dewy.env, fill in your values,
+      then re-run this playbook to start the service.
   loop: "{{ dewy_env_stat.results }}"
   when: not item.stat.exists
   loop_control:

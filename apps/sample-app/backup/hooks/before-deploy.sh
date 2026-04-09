@@ -20,7 +20,3 @@ docker run --rm \
   offen/docker-volume-backup:v2.47.2
 
 echo "[before-deploy] Snapshot complete: ${BACKUP_LABEL}"
-
-# Optional: source and use the shared backup helper instead of the block above.
-# . "$(dirname "$0")/../../core/global-hooks/backup.sh"
-# run_backup "${BACKUP_LABEL}" db-data app-data
