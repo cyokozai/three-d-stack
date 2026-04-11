@@ -31,10 +31,13 @@
     dest: "/tmp/dewy_{{ dewy_version }}_linux_{{ dewy_arch }}.tar.gz"
     mode: "0644"
 
-- name: Extract Dewy binary directly to install dir
-  ansible.builtin.command:
-    cmd: "tar xzf /tmp/dewy_{{ dewy_version }}_linux_{{ dewy_arch }}.tar.gz -C {{ dewy_install_dir }} dewy"
-  changed_when: true
+- name: Extract Dewy binary to install dir
+  ansible.builtin.unarchive:
+    src: "/tmp/dewy_{{ dewy_version }}_linux_{{ dewy_arch }}.tar.gz"
+    dest: "{{ dewy_install_dir }}"
+    include:
+      - dewy
+    remote_src: true
 
 - name: Set Dewy binary permissions
   ansible.builtin.file:
@@ -45,6 +48,20 @@
   ansible.builtin.file:
     path: "/tmp/dewy_{{ dewy_version }}_linux_{{ dewy_arch }}.tar.gz"
     state: absent
+
+# ---- Deploy global hook helpers ----
+
+- name: Create core/global-hooks directory on VM
+  ansible.builtin.file:
+    path: "{{ three_ds_base_dir }}/core/global-hooks"
+    state: directory
+    mode: "0755"
+
+- name: Copy core/global-hooks to VM
+  ansible.builtin.copy:
+    src: "{{ core_dir }}/global-hooks/"
+    dest: "{{ three_ds_base_dir }}/core/global-hooks/"
+    mode: "0755"
 
 # ---- Per-app deployment ----
 

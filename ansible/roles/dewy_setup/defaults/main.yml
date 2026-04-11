@@ -14,3 +14,7 @@ dewy_apps: []                      # List of app names to create systemd units f
 # Override with -e "apps_dir=/path/to/your/infra/apps" when using
 # three-d-stack as an external tool (kubespray-style).
 apps_dir: "{{ playbook_dir | dirname | dirname }}/apps"
+
+# Path to the core/global-hooks directory in this repo (on the control node).
+# Override if you keep core/ in a different location.
+core_dir: "{{ playbook_dir | dirname | dirname }}/core"

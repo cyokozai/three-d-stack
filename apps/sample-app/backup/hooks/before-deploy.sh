@@ -12,10 +12,13 @@ BACKUP_LABEL="pre-deploy-${APP_NAME}-$(date +%Y%m%dT%H%M%S)"
 
 echo "[before-deploy] Starting pre-deploy snapshot: ${BACKUP_LABEL}"
 
+mkdir -p "${SCRIPT_DIR}/backups"
+
 docker run --rm \
   -v db-data:/backup/db-data:ro \
   -v app-data:/backup/app-data:ro \
   -v "${SCRIPT_DIR}/backups:/archive" \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -e BACKUP_FILENAME="${BACKUP_LABEL}" \
   offen/docker-volume-backup:v2.47.2
 

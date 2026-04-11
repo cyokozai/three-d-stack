@@ -32,6 +32,7 @@ run_backup() {
   docker run --rm \
     ${VOLUME_ARGS} \
     -v "${ARCHIVE_DIR}:/archive" \
+    -v /var/run/docker.sock:/var/run/docker.sock:ro \
     -e BACKUP_FILENAME="${LABEL}" \
     offen/docker-volume-backup:v2.47.2
 
