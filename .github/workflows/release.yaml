@@ -11,147 +11,166 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: read  # listPullRequestsAssociatedWithCommit に必要
-      models: read          # GitHub Models (AI) へのアクセス
+      pull-requests: read
+      models: read
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Get previous tag
+        id: prev_tag
+        run: |
+          PREV=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "tag=${PREV}" >> "$GITHUB_OUTPUT"
+          echo "Previous tag: ${PREV}"
+
       - name: Resolve bump type from PR labels
         id: bump
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              commit_sha: context.sha,
-            });
-            const labels = pulls.flatMap(pr => pr.labels.map(l => l.name));
-            let bump = 'patch';
-            if (labels.includes('major')) bump = 'major';
-            else if (labels.includes('minor')) bump = 'minor';
-            core.setOutput('result', bump);
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BUMP="patch"
+          LABELS=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+            --jq '[.[].labels[].name] | join(" ")' 2>/dev/null || echo "")
+          echo "Labels: [${LABELS}]"
+          if echo " ${LABELS} " | grep -qw "major"; then
+            BUMP="major"
+          elif echo " ${LABELS} " | grep -qw "minor"; then
+            BUMP="minor"
+          fi
+          echo "bump_type=${BUMP}" >> "$GITHUB_OUTPUT"
+          echo "Bump type: ${BUMP}"
 
-      - name: Bump version tag
-        id: tag
-        uses: mathieudutour/github-tag-action@v6.2
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          default_bump: ${{ steps.bump.outputs.result }}
-          release_branches: main
+      - name: Compute new version
+        id: version
+        run: |
+          PREV="${{ steps.prev_tag.outputs.tag }}"
+          BUMP="${{ steps.bump.outputs.bump_type }}"
+          VERSION="${PREV#v}"
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          MINOR=$(echo "$VERSION" | cut -d. -f2)
+          PATCH=$(echo "$VERSION" | cut -d. -f3)
+          case "$BUMP" in
+            major) NEW="v$((MAJOR + 1)).0.0" ;;
+            minor) NEW="v${MAJOR}.$((MINOR + 1)).0" ;;
+            *)     NEW="v${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
+          esac
+          echo "new_tag=${NEW}" >> "$GITHUB_OUTPUT"
+          echo "New tag: ${NEW}"
 
-      - name: Collect merged PRs since previous tag
-        id: prs
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const prevTag = '${{ steps.tag.outputs.previous_tag }}';
-            const base = prevTag || null;
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.version.outputs.new_tag }}"
+          git push origin "${{ steps.version.outputs.new_tag }}"
 
-            let commits = [];
-            if (base) {
-              const { data } = await github.rest.repos.compareCommits({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                base,
-                head: context.sha,
-              });
-              commits = data.commits;
-            } else {
-              const { data } = await github.rest.repos.listCommits({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                sha: context.sha,
-                per_page: 20,
-              });
-              commits = data;
-            }
-
-            const seen = new Set();
-            const prs = [];
-            for (const commit of commits) {
-              const { data: associated } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                commit_sha: commit.sha,
-              });
-              for (const pr of associated) {
-                if (!seen.has(pr.number)) {
-                  seen.add(pr.number);
-                  prs.push({
-                    number: pr.number,
-                    title: pr.title,
-                    body: (pr.body || '').slice(0, 400),
-                    labels: pr.labels.map(l => l.name),
-                    user: pr.user.login,
-                  });
-                }
-              }
-            }
-            return JSON.stringify(prs);
-
-      - name: Generate release notes with GitHub Models
-        id: ai_notes
+      - name: Collect PRs and generate AI release notes
+        id: notes
         uses: actions/github-script@v7
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_JSON: ${{ steps.prs.outputs.result }}
         with:
           script: |
-            const prs = JSON.parse(process.env.PR_JSON || '[]');
+            const prevTag = '${{ steps.prev_tag.outputs.tag }}';
+            const newTag  = '${{ steps.version.outputs.new_tag }}';
+
+            // Collect PRs merged since previous tag
+            let commits = [];
+            try {
+              const { data } = await github.rest.repos.compareCommits({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                base:  prevTag,
+                head:  context.sha,
+              });
+              commits = data.commits;
+            } catch (e) {
+              core.warning(`compareCommits failed: ${e.message}`);
+            }
+
+            const seen = new Set();
+            const prs  = [];
+            for (const commit of commits) {
+              try {
+                const { data: associated } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                  owner:      context.repo.owner,
+                  repo:       context.repo.repo,
+                  commit_sha: commit.sha,
+                });
+                for (const pr of associated) {
+                  if (!seen.has(pr.number)) {
+                    seen.add(pr.number);
+                    prs.push({
+                      number: pr.number,
+                      title:  pr.title,
+                      body:   (pr.body || '').slice(0, 300),
+                      labels: pr.labels.map(l => l.name),
+                    });
+                  }
+                }
+              } catch (e) {
+                core.warning(`Could not get PRs for ${commit.sha}: ${e.message}`);
+              }
+            }
+
             if (prs.length === 0) {
-              core.info('No PRs found, skipping AI generation.');
-              return '';
+              core.info('No PRs found — skipping AI generation.');
+              core.setOutput('body', '');
+              return;
             }
 
             const prText = prs.map(pr =>
-              `#${pr.number} [${pr.labels.join(', ') || 'no label'}] ${pr.title}\n${pr.body ? pr.body : ''}`
+              `#${pr.number} [${pr.labels.join(', ') || 'no label'}] ${pr.title}\n${pr.body}`
             ).join('\n\n');
 
-            const res = await fetch('https://models.inference.ai.azure.com/chat/completions', {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${process.env.GITHUB_TOKEN}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'gpt-4o-mini',
-                messages: [
-                  {
-                    role: 'system',
-                    content: [
-                      'You are a technical writer for an open-source project.',
-                      'Generate release notes in Markdown from the PR list.',
-                      'Group by: ## New Features, ## Bug Fixes, ## Maintenance.',
-                      'Omit empty sections. Be concise and user-focused.',
-                      'End with a one-sentence summary of the release.',
-                    ].join(' '),
-                  },
-                  {
-                    role: 'user',
-                    content: `Version: ${{ steps.tag.outputs.new_tag }}\n\nMerged PRs:\n${prText}`,
-                  },
-                ],
-                max_tokens: 800,
-              }),
-            });
+            // Generate release notes via GitHub Models
+            try {
+              const res = await fetch('https://models.inference.ai.azure.com/chat/completions', {
+                method:  'POST',
+                headers: {
+                  'Authorization': `Bearer ${process.env.GITHUB_TOKEN}`,
+                  'Content-Type':  'application/json',
+                },
+                body: JSON.stringify({
+                  model: 'gpt-4o-mini',
+                  messages: [
+                    {
+                      role:    'system',
+                      content: 'You are a technical writer for an open-source project. Generate release notes in Markdown from the PR list. Group by: ## New Features, ## Bug Fixes, ## Maintenance. Omit empty sections. Be concise and user-focused.',
+                    },
+                    {
+                      role:    'user',
+                      content: `Version: ${newTag}\n\nMerged PRs:\n${prText}`,
+                    },
+                  ],
+                  max_tokens: 800,
+                }),
+              });
 
-            if (!res.ok) {
-              core.warning(`GitHub Models API returned ${res.status}. Falling back to default notes.`);
-              return '';
+              if (res.ok) {
+                const data = await res.json();
+                core.setOutput('body', data.choices[0].message.content);
+                return;
+              }
+              core.warning(`GitHub Models returned ${res.status} — falling back to auto-generated notes.`);
+            } catch (e) {
+              core.warning(`GitHub Models failed: ${e.message} — falling back to auto-generated notes.`);
             }
 
-            const data = await res.json();
-            return data.choices[0].message.content;
+            core.setOutput('body', '');
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.new_tag }}
-          name: ${{ steps.tag.outputs.new_tag }}
-          # AI生成ノートがあればそちらを使用、なければGitHub標準の自動生成にフォールバック
-          body: ${{ steps.ai_notes.outputs.result }}
-          generate_release_notes: ${{ steps.ai_notes.outputs.result == '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTES_BODY: ${{ steps.notes.outputs.body }}
+        run: |
+          TAG="${{ steps.version.outputs.new_tag }}"
+          if [ -n "$NOTES_BODY" ]; then
+            printf '%s' "$NOTES_BODY" > /tmp/notes.txt
+            gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.txt
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
