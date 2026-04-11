@@ -11,7 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      models: read  # GitHub Models (AI) へのアクセス
+      pull-requests: read  # listPullRequestsAssociatedWithCommit に必要
+      models: read          # GitHub Models (AI) へのアクセス
 
     steps:
       - uses: actions/checkout@v4
