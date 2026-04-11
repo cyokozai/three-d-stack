@@ -20,7 +20,7 @@ jobs:
 
       - name: Resolve bump type from PR labels
         id: bump
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
@@ -43,7 +43,7 @@ jobs:
 
       - name: Collect merged PRs since previous tag
         id: prs
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const prevTag = '${{ steps.tag.outputs.previous_tag }}';
@@ -93,7 +93,7 @@ jobs:
 
       - name: Generate release notes with GitHub Models
         id: ai_notes
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_JSON: ${{ steps.prs.outputs.result }}
