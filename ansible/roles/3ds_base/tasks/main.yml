@@ -1,6 +1,14 @@
 ---
 # 3ds_base — Install Docker and provision base 3DS directory structure
 
+- name: Install curl and ca-certificates
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+    state: present
+    update_cache: true
+
 - name: Check if Docker is already installed
   ansible.builtin.command: docker --version
   register: docker_installed
@@ -16,7 +24,6 @@
           - ca-certificates
           - curl
         state: present
-        update_cache: true
 
     - name: Create Docker apt keyring directory
       ansible.builtin.file:

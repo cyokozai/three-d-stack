@@ -96,6 +96,7 @@ jobs:
         uses: actions/github-script@v7
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_JSON: ${{ steps.prs.outputs.result }}
         with:
           script: |
             const prs = JSON.parse(process.env.PR_JSON || '[]');
@@ -143,8 +144,6 @@ jobs:
 
             const data = await res.json();
             return data.choices[0].message.content;
-        env:
-          PR_JSON: ${{ steps.prs.outputs.result }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
