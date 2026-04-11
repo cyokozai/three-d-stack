@@ -1,53 +1,62 @@
 ---
 # 3ds_base — Install Docker and provision base 3DS directory structure
 
-- name: Install Docker prerequisites
-  ansible.builtin.apt:
-    name:
-      - ca-certificates
-      - curl
-    state: present
-    update_cache: true
+- name: Check if Docker is already installed
+  ansible.builtin.command: docker --version
+  register: docker_installed
+  changed_when: false
+  failed_when: false
 
-- name: Create Docker apt keyring directory
-  ansible.builtin.file:
-    path: /etc/apt/keyrings
-    state: directory
-    mode: "0755"
+- name: Install Docker
+  when: docker_installed.rc != 0
+  block:
+    - name: Install Docker prerequisites
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+        state: present
+        update_cache: true
 
-- name: Set Docker apt architecture and distribution
-  ansible.builtin.set_fact:
-    docker_apt_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"
-    docker_apt_dist: "{{ ansible_facts['distribution'] | lower }}"
+    - name: Create Docker apt keyring directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: "0755"
 
-- name: Add Docker GPG key
-  ansible.builtin.get_url:
-    url: "https://download.docker.com/linux/{{ docker_apt_dist }}/gpg"
-    dest: /etc/apt/keyrings/docker.asc
-    mode: "0644"
-    force: false
+    - name: Set Docker apt architecture and distribution
+      ansible.builtin.set_fact:
+        docker_apt_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"
+        docker_apt_dist: "{{ ansible_facts['distribution'] | lower }}"
 
-- name: Add Docker apt repository
-  ansible.builtin.apt_repository:
-    repo: >-
-      deb [arch={{ docker_apt_arch }} signed-by=/etc/apt/keyrings/docker.asc]
-      https://download.docker.com/linux/{{ docker_apt_dist }}
-      {{ ansible_facts['distribution_release'] }} stable
-    filename: docker
-    state: present
+    - name: Add Docker GPG key
+      ansible.builtin.get_url:
+        url: "https://download.docker.com/linux/{{ docker_apt_dist }}/gpg"
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+        force: false
 
-- name: Install Docker packages
-  ansible.builtin.apt:
-    name:
-      - docker-ce
-      - docker-ce-cli
-      - containerd.io
-      - docker-buildx-plugin
-      - docker-compose-plugin
-    state: present
-    update_cache: true
-  notify: Restart docker
-  ignore_errors: "{{ ansible_check_mode }}"
+    - name: Add Docker apt repository
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch={{ docker_apt_arch }} signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/{{ docker_apt_dist }}
+          {{ ansible_facts['distribution_release'] }} stable
+        filename: docker
+        state: present
+
+    - name: Install Docker packages
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+      notify: Restart docker
+      ignore_errors: "{{ ansible_check_mode }}"
 
 - name: Start and enable Docker service
   ansible.builtin.systemd:
