@@ -26,6 +26,20 @@ graph TD
 
 ---
 
+## Tool Versions
+
+| Tool | Version | Notes |
+|------|---------|-------|
+| [Dewy](https://github.com/linyows/dewy/releases) | `2.14.0` | Pinned in `ansible/roles/dewy_setup/defaults/main.yml` |
+| [docker-volume-backup](https://github.com/offen/docker-volume-backup/releases) | `v2.47.2` | Pinned in `apps/sample-app/backup/compose.yaml` |
+| Docker CE | latest | Installed via official apt repository |
+| Ansible | `≥ 2.15` | Required on control node only |
+| Python | `≥ 3.10` | Required by Ansible on control node |
+
+> Version pins are managed by [Dependabot](.github/dependabot.yml) and updated automatically via pull request.
+
+---
+
 ## Repository Layout
 
 ```
@@ -61,9 +75,35 @@ three-d-stack/
 
 ### Prerequisites
 
-- Linux VM with SSH access (Proxmox VE, EC2, VPS, OrbStack, etc.)
-- Ansible on your control node
-- OCI registry with **semver-tagged** images — `v0.1.0`, `v1.2.3`, etc.
+#### Control node (your laptop / CI)
+
+Install Ansible:
+
+```bash
+# macOS
+brew install ansible
+
+# Ubuntu / Debian
+sudo apt install ansible
+
+# pip (any platform)
+pip install ansible
+```
+
+Verify:
+```bash
+ansible --version   # should be ≥ 2.15
+```
+
+#### Target VM
+
+- Linux (Ubuntu 22.04 / 24.04 or Debian 12)
+- SSH access with sudo privileges
+- Outbound internet access (to pull images from GHCR and download Dewy binary)
+
+#### OCI registry
+
+Images must be tagged with **semver** (e.g. `v0.1.0`, `v1.2.3`).
 
 > **Dewy requires semver tags.** The `latest` tag is not supported.
 
@@ -78,13 +118,13 @@ ansible-playbook -i inventories/proxmox playbooks/setup-node.yml
 
 Installs Docker, creates the `3ds-net` Docker network, and prepares `/opt/3ds/`.
 
-> If Docker is already installed on the VM, the installation step is automatically skipped.
+> If Docker is already installed, the installation step is automatically skipped.
 
 ---
 
 ### Step 2 — Prepare app config on your control node
 
-Create a directory for your app. The location is up to you — it does not need to live inside this repository.
+Create a directory for your app. It does **not** need to live inside this repository.
 
 ```
 /path/to/your/apps/
@@ -109,18 +149,18 @@ Ansible copies config files to the VM and starts the Dewy systemd service. Once 
 
 ## Configuring `dewy.env`
 
-`dewy.env` controls how Dewy manages the container. It is loaded by systemd as an `EnvironmentFile=`.
+`dewy.env` controls how Dewy manages the container. It is loaded by systemd as `EnvironmentFile=`.
 
 ```bash
-# ── Required ───────────────────────────────────────────────────────────────
+# ── Required ────────────────────────────────────────────────────────────────
 DEWY_REGISTRY=img://ghcr.io/your-org/your-app
 
 # Port format depends on whether the Dockerfile has an EXPOSE directive:
 #   Image has EXPOSE 3000  →  DEWY_PORT=8080        (Dewy auto-maps to 3000)
-#   No EXPOSE in image     →  DEWY_PORT=8080:8080   (explicit proxy:container)
+#   No EXPOSE in Dockerfile →  DEWY_PORT=8080:8080  (explicit proxy:container)
 DEWY_PORT=8080
 
-# ── Optional ───────────────────────────────────────────────────────────────
+# ── Optional ─────────────────────────────────────────────────────────────────
 DEWY_REPLICAS=1
 
 # Health check: omit entirely for non-HTTP apps (bots, workers)
@@ -152,19 +192,10 @@ my-app/
 └── secrets.env     ← auto-loaded into container
 ```
 
-```bash
-# db.env
-DATABASE_URL=postgres://user:pass@localhost/mydb
-
-# secrets.env
-API_KEY=xxxx
-WEBHOOK_SECRET=yyyy
-```
-
 **Docker `--env-file` format rules:**
 - One `KEY=VALUE` per line — no spaces around `=`
 - No quotes — `KEY="value"` sets the value to `"value"` including the quotes
-- Lines starting with `#` are comments
+- Lines starting with `#` are ignored
 
 ---
 
@@ -220,13 +251,12 @@ my-bot/
 ```bash
 DEWY_REGISTRY=img://ghcr.io/your-org/my-bot
 
-# DEWY_PORT is required by Dewy's proxy design.
-# Use proxy:container format if Dockerfile has no EXPOSE directive.
-# No traffic is routed here for bots.
+# Use proxy:container format if Dockerfile has no EXPOSE directive
+# No traffic is routed here for bots
 DEWY_PORT=8080:8080
 
-# DEWY_HEALTH_PATH must be omitted — bots have no HTTP endpoint.
-# DEWY_BEFORE/AFTER_DEPLOY_HOOK must be omitted — no backup/ directory.
+# DEWY_HEALTH_PATH must be omitted — bots have no HTTP endpoint
+# DEWY_BEFORE/AFTER_DEPLOY_HOOK must be omitted — no backup/ directory
 
 DEWY_REPLICAS=1
 DEWY_EXTRA_ARGS="--memory 256m"
@@ -245,11 +275,11 @@ API_KEY=yyyy
 | Mistake | Symptom | Fix |
 |---------|---------|-----|
 | Image has no semver tag | `no valid versioned object found` | Push `v0.1.0` — `latest` is not supported |
-| `DEWY_HEALTH_PATH` set for a non-HTTP app | Deploy hangs, container never becomes healthy | Remove `DEWY_HEALTH_PATH` |
-| Hook vars set without a `backup/` directory | Deploy aborted, hook script not found | Remove `DEWY_BEFORE/AFTER_DEPLOY_HOOK` |
+| `DEWY_HEALTH_PATH` set for a non-HTTP app | Deploy hangs forever | Remove `DEWY_HEALTH_PATH` |
+| Hook vars set without a `backup/` directory | Deploy aborted, script not found | Remove `DEWY_BEFORE/AFTER_DEPLOY_HOOK` |
 | `DEWY_PORT=8080` with no `EXPOSE` in Dockerfile | `failed to resolve port mappings` | Use `DEWY_PORT=8080:8080` |
 | Private GHCR image, no auth on VM | `401 Unauthorized` | `docker login ghcr.io` on the VM |
-| Quotes in extra `*.env` files | Env var value includes literal quotes | Remove quotes — Docker `--env-file` does not strip them |
+| Quotes in extra `*.env` files | Env var includes literal quote characters | Remove quotes — Docker `--env-file` does not strip them |
 | `--env-file` in `DEWY_EXTRA_ARGS` | Redundant (still works) | Remove — extra `*.env` files are auto-loaded |
 
 ---
@@ -267,7 +297,7 @@ dewy container --registry img://ghcr.io/your-org/app --slot blue  ...
 
 ---
 
-## Scope
+## Scope & Trade-offs
 
 3DS is scoped to the **VM-internal layer**.
 
@@ -278,6 +308,13 @@ dewy container --registry img://ghcr.io/your-org/app --slot blue  ...
 | Volume backup (optional) | docker-volume-backup |
 | Node-level failover | Your infrastructure (Proxmox HA, ASG, etc.) |
 | Secrets management | External (Vault, AWS SSM, etc.) |
+
+| Decision | Trade-off |
+|----------|-----------|
+| Dewy over Compose for app lifecycle | Smaller community — if unmaintained, deploy mechanism needs replacement |
+| Single-node replicas | Cross-node HA requires infrastructure layer |
+| Ansible for provisioning | Requires Ansible on operator's machine |
+| No built-in secrets management | Users must wire in Vault / SSM / etc. |
 
 ---
 
