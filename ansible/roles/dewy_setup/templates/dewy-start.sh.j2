@@ -9,8 +9,8 @@
 exec {{ dewy_install_dir }}/dewy container \
   --registry "${DEWY_REGISTRY}" \
   --port "${DEWY_PORT}" \
-  --health-path "${DEWY_HEALTH_PATH}" \
-  --replicas "${DEWY_REPLICAS}" \
+  ${DEWY_HEALTH_PATH:+--health-path} ${DEWY_HEALTH_PATH} \
+  ${DEWY_REPLICAS:+--replicas} ${DEWY_REPLICAS} \
   ${DEWY_BEFORE_DEPLOY_HOOK:+--before-deploy-hook} ${DEWY_BEFORE_DEPLOY_HOOK} \
   ${DEWY_AFTER_DEPLOY_HOOK:+--after-deploy-hook} ${DEWY_AFTER_DEPLOY_HOOK} \
   ${DEWY_NOTIFIER:+--notifier} ${DEWY_NOTIFIER} \
