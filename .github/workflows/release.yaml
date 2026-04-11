@@ -30,9 +30,10 @@ jobs:
               commit_sha: context.sha,
             });
             const labels = pulls.flatMap(pr => pr.labels.map(l => l.name));
-            if (labels.includes('major')) return 'major';
-            if (labels.includes('minor')) return 'minor';
-            return 'patch';
+            let bump = 'patch';
+            if (labels.includes('major')) bump = 'major';
+            else if (labels.includes('minor')) bump = 'minor';
+            core.setOutput('result', bump);
 
       - name: Bump version tag
         id: tag
