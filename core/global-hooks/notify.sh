@@ -20,6 +20,8 @@ notify_slack() {
   ESCAPED=$(printf '%s' "${MESSAGE}" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
 
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+    --connect-timeout 5 \
+    --max-time 10 \
     -X POST "${NOTIFY_SLACK_WEBHOOK}" \
     -H "Content-Type: application/json" \
     --data "{\"text\": ${ESCAPED}}")

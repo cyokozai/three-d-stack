@@ -33,10 +33,10 @@ graph TD
 | [Dewy](https://github.com/linyows/dewy/releases) | `2.14.0` | Pinned in `ansible/roles/dewy_setup/defaults/main.yml` |
 | [docker-volume-backup](https://github.com/offen/docker-volume-backup/releases) | `v2.47.2` | Pinned in `apps/sample-app/backup/compose.yaml` |
 | Docker CE | latest | Installed via official apt repository |
-| Ansible | `≥ 2.15` | Required on control node only |
+| Ansible | `≥ 2.14` | Required on control node only |
 | Python | `≥ 3.10` | Required by Ansible on control node |
 
-> Version pins are managed by [Dependabot](.github/dependabot.yml) and updated automatically via pull request.
+> Version pins are managed by [Dependabot](.github/dependabot.yaml) and updated automatically via pull request.
 
 ---
 
