@@ -1,0 +1,32 @@
+---
+# deploy-app.yml — Deploy or update applications on a 3DS node
+#
+# Usage:
+#   # Single app
+#   ansible-playbook -i inventories/local playbooks/deploy-app.yml \
+#     -e "dewy_apps=['biblivote']"
+#
+#   # Multiple apps at once
+#   ansible-playbook -i inventories/local playbooks/deploy-app.yml \
+#     -e "dewy_apps=['biblivote','sample-app']"
+
+- name: Deploy applications
+  hosts: three_ds_nodes
+  become: true
+
+  pre_tasks:
+    - name: Prepare Ansible remote temp directory
+      ansible.builtin.file:
+        path: /tmp/ansible-3ds
+        state: directory
+        mode: "01777"
+
+    - name: Verify dewy_apps is set and not empty
+      ansible.builtin.assert:
+        that:
+          - dewy_apps is defined
+          - dewy_apps | length > 0
+        fail_msg: "dewy_apps must be specified. Use -e \"dewy_apps=['your-app']\""
+
+  roles:
+    - role: dewy_setup

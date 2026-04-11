@@ -1,0 +1,16 @@
+---
+# Default variables for dewy_setup.
+# Override in inventories/<env>/group_vars/all.yml
+
+dewy_version: "2.14.0"             # latest stable: https://github.com/linyows/dewy/releases
+dewy_install_dir: "/usr/local/bin"
+dewy_arch: ""                      # auto-detected (arm64 | x86_64); override only when needed
+dewy_apps: []                      # List of app names to create systemd units for
+                                   # e.g. ["sample-app", "nginx"]
+
+# Path to the directory containing per-app config directories.
+# Default: the apps/ directory two levels above the playbook
+# (i.e. the root of the three-d-stack repo or a user's infra repo).
+# Override with -e "apps_dir=/path/to/your/infra/apps" when using
+# three-d-stack as an external tool (kubespray-style).
+apps_dir: "{{ playbook_dir | dirname | dirname }}/apps"

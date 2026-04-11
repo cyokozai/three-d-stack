@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: 3ds_base
+  author: cyokozai
+  description: Install Docker and provision base 3DS directory structure on a Linux VM
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Debian
+      versions: [bookworm]
+    - name: Ubuntu
+      versions: [jammy, noble]
+
+dependencies: []
