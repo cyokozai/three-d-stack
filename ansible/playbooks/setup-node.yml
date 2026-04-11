@@ -1,0 +1,26 @@
+---
+# setup-node.yml — Bootstrap a VM for Three-D Stack
+#
+# Usage:
+#   # Local (OrbStack)
+#   ansible-playbook -i inventories/local playbooks/setup-node.yml
+#
+#   # Proxmox VE
+#   ansible-playbook -i inventories/proxmox playbooks/setup-node.yml
+#
+#   # Single host override
+#   ansible-playbook -i inventories/local playbooks/setup-node.yml -l three-ds
+
+- name: Bootstrap 3DS node
+  hosts: three_ds_nodes
+  become: true
+
+  pre_tasks:
+    - name: Prepare Ansible remote temp directory
+      ansible.builtin.file:
+        path: /tmp/ansible-3ds
+        state: directory
+        mode: "01777"
+
+  roles:
+    - role: 3ds_base

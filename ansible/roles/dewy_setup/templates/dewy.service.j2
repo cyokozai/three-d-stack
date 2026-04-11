@@ -1,0 +1,16 @@
+# /etc/systemd/system/dewy-{{ app_name }}.service
+# Managed by Ansible — do not edit manually.
+[Unit]
+Description=Dewy container manager for {{ app_name }}
+After=docker.service
+Requires=docker.service
+
+[Service]
+EnvironmentFile={{ three_ds_apps_dir }}/{{ app_name }}/dewy.env
+WorkingDirectory={{ three_ds_apps_dir }}/{{ app_name }}
+ExecStart={{ three_ds_apps_dir }}/{{ app_name }}/dewy-start.sh
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

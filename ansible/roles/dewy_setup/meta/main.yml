@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  role_name: dewy_setup
+  author: cyokozai
+  description: Install Dewy binary and create a systemd service per application
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Debian
+      versions: [bookworm]
+    - name: Ubuntu
+      versions: [jammy, noble]
+
+dependencies:
+  - role: 3ds_base

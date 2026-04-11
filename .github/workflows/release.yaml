@@ -1,0 +1,155 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    name: Create release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      models: read  # GitHub Models (AI) へのアクセス
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve bump type from PR labels
+        id: bump
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+            });
+            const labels = pulls.flatMap(pr => pr.labels.map(l => l.name));
+            if (labels.includes('major')) return 'major';
+            if (labels.includes('minor')) return 'minor';
+            return 'patch';
+
+      - name: Bump version tag
+        id: tag
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: ${{ steps.bump.outputs.result }}
+          release_branches: main
+
+      - name: Collect merged PRs since previous tag
+        id: prs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prevTag = '${{ steps.tag.outputs.previous_tag }}';
+            const base = prevTag || null;
+
+            let commits = [];
+            if (base) {
+              const { data } = await github.rest.repos.compareCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base,
+                head: context.sha,
+              });
+              commits = data.commits;
+            } else {
+              const { data } = await github.rest.repos.listCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha: context.sha,
+                per_page: 20,
+              });
+              commits = data;
+            }
+
+            const seen = new Set();
+            const prs = [];
+            for (const commit of commits) {
+              const { data: associated } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: commit.sha,
+              });
+              for (const pr of associated) {
+                if (!seen.has(pr.number)) {
+                  seen.add(pr.number);
+                  prs.push({
+                    number: pr.number,
+                    title: pr.title,
+                    body: (pr.body || '').slice(0, 400),
+                    labels: pr.labels.map(l => l.name),
+                    user: pr.user.login,
+                  });
+                }
+              }
+            }
+            return JSON.stringify(prs);
+
+      - name: Generate release notes with GitHub Models
+        id: ai_notes
+        uses: actions/github-script@v7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_JSON: ${{ steps.prs.outputs.result }}
+        with:
+          script: |
+            const prs = JSON.parse(process.env.PR_JSON || '[]');
+            if (prs.length === 0) {
+              core.info('No PRs found, skipping AI generation.');
+              return '';
+            }
+
+            const prText = prs.map(pr =>
+              `#${pr.number} [${pr.labels.join(', ') || 'no label'}] ${pr.title}\n${pr.body ? pr.body : ''}`
+            ).join('\n\n');
+
+            const res = await fetch('https://models.inference.ai.azure.com/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${process.env.GITHUB_TOKEN}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [
+                  {
+                    role: 'system',
+                    content: [
+                      'You are a technical writer for an open-source project.',
+                      'Generate release notes in Markdown from the PR list.',
+                      'Group by: ## New Features, ## Bug Fixes, ## Maintenance.',
+                      'Omit empty sections. Be concise and user-focused.',
+                      'End with a one-sentence summary of the release.',
+                    ].join(' '),
+                  },
+                  {
+                    role: 'user',
+                    content: `Version: ${{ steps.tag.outputs.new_tag }}\n\nMerged PRs:\n${prText}`,
+                  },
+                ],
+                max_tokens: 800,
+              }),
+            });
+
+            if (!res.ok) {
+              core.warning(`GitHub Models API returned ${res.status}. Falling back to default notes.`);
+              return '';
+            }
+
+            const data = await res.json();
+            return data.choices[0].message.content;
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.new_tag }}
+          name: ${{ steps.tag.outputs.new_tag }}
+          # AI生成ノートがあればそちらを使用、なければGitHub標準の自動生成にフォールバック
+          body: ${{ steps.ai_notes.outputs.result }}
+          generate_release_notes: ${{ steps.ai_notes.outputs.result == '' }}
