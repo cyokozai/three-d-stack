@@ -24,9 +24,6 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           default_bump: patch
           release_branches: main
-          # PR label "minor" → minor bump, "major" → major bump
-          minor_string_token: minor
-          major_string_token: major
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
