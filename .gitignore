@@ -1,8 +1,8 @@
 # ============================== default ============================== #
 
 
-.env
-dewy.env
+*.env*
+!dewy.env.example
 backups/
 
 # Ignore all app directories except the sample template
