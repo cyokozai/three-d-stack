@@ -93,12 +93,23 @@
   loop_control:
     label: "{{ item.item }}"
 
-- name: Copy dewy.env.example to VM
-  ansible.builtin.copy:
-    src: "{{ apps_dir }}/{{ item }}/dewy.env.example"
-    dest: "{{ three_ds_apps_dir }}/{{ item }}/dewy.env.example"
-    mode: "0644"
+- name: Check if dewy.env.example exists on control node
+  ansible.builtin.stat:
+    path: "{{ apps_dir }}/{{ item }}/dewy.env.example"
+  delegate_to: localhost
+  become: false
+  register: dewy_env_example_stat
   loop: "{{ _dewy_apps }}"
+
+- name: Copy dewy.env.example to VM (if present on control node)
+  ansible.builtin.copy:
+    src: "{{ apps_dir }}/{{ item.item }}/dewy.env.example"
+    dest: "{{ three_ds_apps_dir }}/{{ item.item }}/dewy.env.example"
+    mode: "0644"
+  loop: "{{ dewy_env_example_stat.results }}"
+  when: item.stat.exists
+  loop_control:
+    label: "{{ item.item }}"
 
 - name: Check if dewy.env exists on control node
   ansible.builtin.stat:
