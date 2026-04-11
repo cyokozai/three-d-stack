@@ -36,8 +36,6 @@ graph TD
 | Ansible | `≥ 2.14` | Required on control node only |
 | Python | `≥ 3.10` | Required by Ansible on control node |
 
-> Version pins are managed by [Dependabot](.github/dependabot.yaml) and updated automatically via pull request.
-
 ---
 
 ## Repository Layout
