@@ -129,6 +129,24 @@
   loop_control:
     label: "{{ item.item }}"
 
+- name: Check if app.env exists on control node
+  ansible.builtin.stat:
+    path: "{{ apps_dir }}/{{ item }}/app.env"
+  delegate_to: localhost
+  become: false
+  register: app_env_stat
+  loop: "{{ _dewy_apps }}"
+
+- name: Copy app.env to VM (if present on control node)
+  ansible.builtin.copy:
+    src: "{{ apps_dir }}/{{ item.item }}/app.env"
+    dest: "{{ three_ds_apps_dir }}/{{ item.item }}/app.env"
+    mode: "0600"
+  loop: "{{ app_env_stat.results }}"
+  when: item.stat.exists
+  loop_control:
+    label: "{{ item.item }}"
+
 # ---- start script + systemd unit ----
 
 - name: Deploy start wrapper script for each app
