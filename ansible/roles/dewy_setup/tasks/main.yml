@@ -29,6 +29,7 @@
   ansible.builtin.get_url:
     url: "https://github.com/linyows/dewy/releases/download/v{{ dewy_version }}/dewy_linux_{{ dewy_arch }}.tar.gz"
     dest: "/tmp/dewy_{{ dewy_version }}_linux_{{ dewy_arch }}.tar.gz"
+    checksum: "{{ 'sha256:' + dewy_checksum if dewy_checksum else omit }}"
     mode: "0644"
 
 - name: Extract Dewy binary to install dir
