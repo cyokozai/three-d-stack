@@ -313,6 +313,7 @@ dewy container --registry img://ghcr.io/your-org/app --slot blue  ...
 | Single-node replicas | Cross-node HA requires infrastructure layer |
 | Ansible for provisioning | Requires Ansible on operator's machine |
 | No built-in secrets management | Users must wire in Vault / SSM / etc. |
+| `docker` group membership | Grants root-equivalent host access via `docker run`. Use only on trusted VMs. |
 
 ---
 
