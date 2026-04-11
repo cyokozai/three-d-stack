@@ -1,210 +1,27 @@
 # Three-D Stack (3DS)
 
-> The definitive **Docker · Dewy · DVB** stack for any infrastructure.
+> **Docker · Dewy · DVB** — a portable container deployment platform for any Linux VM.
 
-3DS is a portable, infrastructure-agnostic container platform that runs inside any Linux VM.
-No Kubernetes. No vendor lock-in. Just three well-chosen tools working together.
-
----
-
-## What is 3DS?
-
-3DS wires together three open-source tools into a cohesive deployment platform:
+No Kubernetes. No vendor lock-in. Three well-chosen tools that work together.
 
 | Component | Role |
 |---|---|
-| **[Dewy](https://github.com/linyows/dewy)** | Pull-based declarative deploy engine |
-| **[Docker](https://www.docker.com/)** | Container runtime & volume management |
-| **[docker-volume-backup (DVB)](https://github.com/offen/docker-volume-backup)** | Container volume backup & restore |
-
-The stack deliberately lives _inside_ the VM layer. Proxmox HA, AWS Auto Scaling, or any other infrastructure-level resilience mechanism sits below and handles node-level concerns independently. 3DS owns everything from the container runtime upward.
+| **[Dewy](https://github.com/linyows/dewy)** | Pull-based CD — polls OCI registry, deploys on new semver tag |
+| **[Docker](https://www.docker.com/)** | Container runtime & named volume management |
+| **[docker-volume-backup (DVB)](https://github.com/offen/docker-volume-backup)** | Volume snapshot & backup (optional) |
 
 ```mermaid
 graph TD
-    OCI["OCI Registry
-    GHCR / ECR / GAR / Docker Hub
-    any semver-tagged image source"]
+    OCI["OCI Registry\n(GHCR / ECR / GAR)"]
+    Dewy["Dewy\n(systemd service)\npoll & deploy"]
+    App["Application Container"]
+    DVB["docker-volume-backup\n(optional)"]
+    Infra["Infrastructure\n(Proxmox / EC2 / VPS)"]
 
-    Dewy["Dewy
-    declarative deploy engine
-    rolling update · blue/green · hook"]
-
-    Docker["Docker
-    container runtime
-    containers · volumes"]
-
-    DVB["docker-volume-backup
-    volume snapshot & backup
-    pre-deploy snapshot · S3 / SSH"]
-
-    Infra(["any infrastructure below
-    Proxmox / EC2 / bare metal / etc."])
-
-    OCI     -->|"pull on new tag"| Dewy
-    Dewy    -->|"docker run"| Docker
-    Docker  -->|"before-deploy-hook / scheduled"| DVB
-    DVB    <-->|"node-level failover"| Infra
-```
-
----
-
-## Features
-
-### Dewy — declarative deploy engine
-
-- **Pull-based reconciliation** — Dewy continuously polls your OCI registry and deploys the latest semver-tagged image automatically. No push webhooks needed.
-- **Zero-downtime rolling updates** — new container starts, passes a health check, then traffic shifts via Docker network alias before the old container drains and stops.
-- **Blue/Green deployment** — control deployment slots using semver build metadata (`v1.2.0+blue`, `v1.2.0+green`) and the `--slot` flag. Flip traffic between slots without touching the running workload.
-- **Replica management** — `--replicas N` runs multiple instances of a container on a single node.
-- **Health checks** — `--health-path /health` gates traffic cutover on an HTTP 200 response.
-- **Deploy hooks** — `--before-deploy-hook` and `--after-deploy-hook` execute shell scripts at defined lifecycle points. A failing before-hook aborts the deploy automatically.
-- **Built-in notifications** — Slack and SMTP support out of the box. Error notifications are rate-limited to prevent alert fatigue.
-- **Audit log** — every successful deploy is recorded back to the registry.
-
-**Deploy lifecycle:**
-
-```mermaid
-sequenceDiagram
-    participant OCI as OCI Registry
-    participant Dewy
-    participant Hook as before-deploy-hook
-    participant Docker
-    participant New as New Container
-
-    loop poll interval
-        Dewy->>OCI: check for new semver tag
-    end
-    OCI-->>Dewy: new tag found
-    Dewy->>Hook: execute before-deploy-hook
-    Note over Hook: DVB snapshot, etc.
-    Hook-->>Dewy: exit 0 (abort deploy if non-zero)
-    Dewy->>Docker: docker run (new container)
-    Docker-->>New: container starts
-    Dewy->>New: GET /health
-    New-->>Dewy: 200 OK
-    Dewy->>Docker: switch network alias to new container
-    Dewy->>Docker: drain & stop old container
-    Dewy->>OCI: record audit log
-    Dewy->>Dewy: execute after-deploy-hook
-```
-
-### Docker — container runtime
-
-- Named volumes persist data across container updates managed by Dewy.
-- Docker network aliases enable instantaneous traffic cutover between old and new containers.
-- All standard `docker run` options (`-e`, `-v`, `--cpus`, `--memory`, etc.) pass through Dewy's `--` separator.
-
-### docker-volume-backup — volume protection
-
-- **Pre-deploy snapshots** — triggered by Dewy's `before-deploy-hook` to capture a point-in-time archive of volumes before any change lands.
-- **Scheduled backups** — runs as a companion container on a cron schedule defined via environment variable.
-- **Multiple backends** — local directory, S3-compatible storage, WebDAV, Azure Blob, Dropbox, Google Drive, or SSH.
-- **GPG encryption** — optional at-rest encryption for sensitive volumes.
-- **Retention management** — automatic rotation of old archives.
-- **Selective container stop** — attach `docker-volume-backup.stop-during-backup=true` to containers that require consistency (e.g. databases). All other containers continue running.
-
-> **Note on databases:** PostgreSQL, MySQL, and similar engines write data across multiple files. Copying a live data directory can produce an inconsistent snapshot. Use `stop-during-backup=true` for database containers, or add a `pg_dump` / `mysqldump` call inside `before-deploy.sh` and back up the dump file instead.
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- A Linux VM with Docker installed
-- An OCI-compatible container registry (GHCR, ECR, GAR, Docker Hub, or self-hosted)
-- Dewy binary ([releases](https://github.com/linyows/dewy/releases))
-
-> **Using Ansible?** See [ansible/](ansible/) to provision a VM and deploy apps in one command.
-
-### 1. Create your app directory
-
-Copy the sample template and rename it for your application:
-
-```bash
-cp -r apps/sample-app apps/my-app
-cd apps/my-app
-cp dewy.env.example dewy.env
-```
-
-### 2. Configure `dewy.env`
-
-Edit `dewy.env` with your registry URL, port, and any extra `docker run` arguments:
-
-```bash
-# apps/my-app/dewy.env
-DEWY_REGISTRY=img://ghcr.io/your-org/your-app
-DEWY_PORT=8080
-DEWY_HEALTH_PATH=/health
-DEWY_REPLICAS=2
-DEWY_BEFORE_DEPLOY_HOOK=./hooks/before-deploy.sh
-DEWY_AFTER_DEPLOY_HOOK=./hooks/after-deploy.sh
-DEWY_NOTIFIER=slack://your-channel?title=your-app
-DEWY_EXTRA_ARGS="-v app-data:/data --memory 512m"
-```
-
-> `dewy.env` is gitignored. `dewy.env.example` is the committed template.
-
-### 3. Start peripheral services
-
-Launch the database and DVB backup daemon with Docker Compose:
-
-```bash
-docker compose up -d
-```
-
-### 4. Start Dewy
-
-```bash
-export GITHUB_TOKEN=ghp_xxxxxxxxxxxx   # or registry credentials
-
-dewy container \
-  --registry "${DEWY_REGISTRY}" \
-  --port "${DEWY_PORT}" \
-  --health-path "${DEWY_HEALTH_PATH}" \
-  --replicas "${DEWY_REPLICAS}" \
-  --before-deploy-hook "${DEWY_BEFORE_DEPLOY_HOOK}" \
-  --after-deploy-hook  "${DEWY_AFTER_DEPLOY_HOOK}" \
-  --notifier "${DEWY_NOTIFIER}" \
-  -- ${DEWY_EXTRA_ARGS}
-```
-
-> In production, Dewy runs as a systemd service. The Ansible `dewy_setup` role handles this automatically.
-
----
-
-## Blue/Green Deployment
-
-Tag your releases with build metadata to target a specific deployment slot:
-
-```bash
-# Deploy v1.2.0 to the green slot only
-gh release create v1.2.0+green
-
-# Start Dewy with --slot to filter by slot
-dewy container --registry img://ghcr.io/your-org/app --slot green ...
-dewy container --registry img://ghcr.io/your-org/app --slot blue  ...
-```
-
-Workflow:
-
-```mermaid
-sequenceDiagram
-    participant OCI as OCI Registry
-    participant LB as Load Balancer
-    participant Blue as Dewy --slot blue
-    participant Green as Dewy --slot green
-
-    Note over Blue,Green: v1.1.0 stable on both slots
-
-    OCI->>Green: v1.2.0+green tag detected
-    Green->>Green: rolling update → v1.2.0
-    Note over Green: validate green slot
-    LB->>Green: switch traffic to green
-
-    OCI->>Blue: v1.2.0+blue tag detected
-    Blue->>Blue: rolling update → v1.2.0
-    Note over Blue,Green: v1.2.0 stable on both slots
+    OCI -->|new semver tag| Dewy
+    Dewy -->|docker run| App
+    Dewy -->|before-deploy-hook| DVB
+    Infra -.->|node failover| Dewy
 ```
 
 ---
@@ -213,76 +30,271 @@ sequenceDiagram
 
 ```
 three-d-stack/
-├── apps/                          # One directory per application
-│   └── sample-app/
-│       ├── dewy.env.example       # Dewy config template (copy → dewy.env)
-│       ├── hooks/
-│       │   ├── before-deploy.sh   # Pre-deploy DVB snapshot
-│       │   └── after-deploy.sh    # Post-deploy migration / notification
-│       └── compose.yaml           # Peripheral services (DB, DVB, etc.)
+├── apps/
+│   └── sample-app/                    # template — copy for new apps
+│       ├── dewy.env.example           # Dewy config template
+│       └── backup/                    # optional — only if DVB backup is needed
+│           ├── hooks/
+│           │   ├── before-deploy.sh   # DVB snapshot before each deploy
+│           │   └── after-deploy.sh    # post-deploy tasks
+│           └── compose.yaml           # DB + DVB daemon
 ├── core/
 │   └── global-hooks/
-│       ├── backup.sh              # Reusable DVB snapshot helper
-│       └── notify.sh              # Reusable Slack notification helper
+│       ├── backup.sh                  # reusable DVB snapshot helper
+│       └── notify.sh                  # reusable Slack notification helper
 ├── ansible/
-│   ├── inventories/               # Local (OrbStack) and Proxmox VE targets
-│   ├── playbooks/                 # setup-node.yml, deploy-app.yml
+│   ├── inventories/
+│   │   ├── local/                     # OrbStack test VMs
+│   │   └── proxmox/                   # Proxmox VE production
+│   ├── playbooks/
+│   │   ├── setup-node.yml             # bootstrap a VM
+│   │   └── deploy-app.yml             # deploy / update an app
 │   └── roles/
-│       ├── 3ds_base/              # Docker install & network setup
-│       └── dewy_setup/            # Dewy binary + systemd service per app
-├── docs/
-│   ├── getting-started.md
-│   ├── blue-green.md
-│   ├── backup-restore.md
-│   └── infrastructure-notes.md   # Proxmox / OrbStack setup notes
-└── README.md
+│       ├── 3ds_base/                  # Docker install, network, directory layout
+│       └── dewy_setup/                # Dewy binary + systemd service per app
+└── docs/
 ```
 
-**Role separation:**
+---
 
-| Component | Managed by |
-|---|---|
-| Application container lifecycle | **Dewy** (`docker run`, rolling update, replicas) |
-| Peripheral services (DB, Redis, DVB) | **Docker Compose** (static, long-running) |
+## Getting Started
+
+### Prerequisites
+
+- Linux VM with SSH access (Proxmox VE, EC2, VPS, OrbStack, etc.)
+- Ansible on your control node
+- OCI registry with **semver-tagged** images — `v0.1.0`, `v1.2.3`, etc.
+
+> **Dewy requires semver tags.** The `latest` tag is not supported.
+
+---
+
+### Step 1 — Bootstrap the VM
+
+```bash
+cd ansible
+ansible-playbook -i inventories/proxmox playbooks/setup-node.yml
+```
+
+Installs Docker, creates the `3ds-net` Docker network, and prepares `/opt/3ds/`.
+
+> If Docker is already installed on the VM, the installation step is automatically skipped.
+
+---
+
+### Step 2 — Prepare app config on your control node
+
+Create a directory for your app. The location is up to you — it does not need to live inside this repository.
+
+```
+/path/to/your/apps/
+└── my-app/
+    ├── dewy.env        ← required (never commit)
+    └── secrets.env     ← optional, any name (auto-loaded into container)
+```
+
+---
+
+### Step 3 — Deploy
+
+```bash
+ansible-playbook -i inventories/proxmox playbooks/deploy-app.yml \
+  -e "dewy_apps=['my-app']" \
+  -e "apps_dir=/path/to/your/apps"
+```
+
+Ansible copies config files to the VM and starts the Dewy systemd service. Once running, Dewy polls the registry and redeploys automatically on every new semver tag — no further Ansible runs needed for normal updates.
+
+---
+
+## Configuring `dewy.env`
+
+`dewy.env` controls how Dewy manages the container. It is loaded by systemd as an `EnvironmentFile=`.
+
+```bash
+# ── Required ───────────────────────────────────────────────────────────────
+DEWY_REGISTRY=img://ghcr.io/your-org/your-app
+
+# Port format depends on whether the Dockerfile has an EXPOSE directive:
+#   Image has EXPOSE 3000  →  DEWY_PORT=8080        (Dewy auto-maps to 3000)
+#   No EXPOSE in image     →  DEWY_PORT=8080:8080   (explicit proxy:container)
+DEWY_PORT=8080
+
+# ── Optional ───────────────────────────────────────────────────────────────
+DEWY_REPLICAS=1
+
+# Health check: omit entirely for non-HTTP apps (bots, workers)
+# If set, Dewy waits for HTTP 200 before switching traffic
+# DEWY_HEALTH_PATH=/health
+
+# Notifications
+# DEWY_NOTIFIER=slack://your-channel?title=your-app
+
+# Lifecycle hooks: only set if backup/ directory exists
+# DEWY_BEFORE_DEPLOY_HOOK=./backup/hooks/before-deploy.sh
+# DEWY_AFTER_DEPLOY_HOOK=./backup/hooks/after-deploy.sh
+
+# Extra docker run arguments (resource limits, volume mounts, etc.)
+# Do NOT add --env-file here — extra *.env files are loaded automatically
+DEWY_EXTRA_ARGS="--memory 512m --cpus 1"
+```
+
+---
+
+## Application Environment Variables
+
+Any `*.env` file in your app directory **other than `dewy.env`** is automatically copied to the VM and passed to the container as `--env-file`. Use any filename and split secrets across multiple files as needed.
+
+```
+my-app/
+├── dewy.env        ← Dewy settings (loaded by systemd, NOT passed to container)
+├── db.env          ← auto-loaded into container
+└── secrets.env     ← auto-loaded into container
+```
+
+```bash
+# db.env
+DATABASE_URL=postgres://user:pass@localhost/mydb
+
+# secrets.env
+API_KEY=xxxx
+WEBHOOK_SECRET=yyyy
+```
+
+**Docker `--env-file` format rules:**
+- One `KEY=VALUE` per line — no spaces around `=`
+- No quotes — `KEY="value"` sets the value to `"value"` including the quotes
+- Lines starting with `#` are comments
+
+---
+
+## App Patterns
+
+### Web app — with HTTP health check and backup
+
+For apps that serve HTTP and need volume backup (web apps with a database).
+
+**Directory layout:**
+```
+my-app/
+├── dewy.env
+├── secrets.env
+└── backup/
+    ├── hooks/
+    │   ├── before-deploy.sh   # DVB snapshot before each deploy
+    │   └── after-deploy.sh    # migrations, notifications
+    └── compose.yaml           # DB + DVB daemon
+```
+
+**`dewy.env`:**
+```bash
+DEWY_REGISTRY=img://ghcr.io/your-org/my-app
+DEWY_PORT=8080
+DEWY_HEALTH_PATH=/health
+DEWY_REPLICAS=2
+DEWY_BEFORE_DEPLOY_HOOK=./backup/hooks/before-deploy.sh
+DEWY_AFTER_DEPLOY_HOOK=./backup/hooks/after-deploy.sh
+DEWY_EXTRA_ARGS="-v app-data:/data --memory 512m"
+```
+
+Start the DB and DVB daemon separately on the VM:
+```bash
+cd /opt/3ds/apps/my-app/backup
+docker compose up -d
+```
+
+---
+
+### Non-HTTP app — bot, worker, no backup
+
+For apps with no HTTP endpoint (Discord bots, background workers).
+
+**Directory layout:**
+```
+my-bot/
+├── dewy.env
+└── bot.env          ← bot-specific env vars (auto-loaded)
+```
+
+**`dewy.env`:**
+```bash
+DEWY_REGISTRY=img://ghcr.io/your-org/my-bot
+
+# DEWY_PORT is required by Dewy's proxy design.
+# Use proxy:container format if Dockerfile has no EXPOSE directive.
+# No traffic is routed here for bots.
+DEWY_PORT=8080:8080
+
+# DEWY_HEALTH_PATH must be omitted — bots have no HTTP endpoint.
+# DEWY_BEFORE/AFTER_DEPLOY_HOOK must be omitted — no backup/ directory.
+
+DEWY_REPLICAS=1
+DEWY_EXTRA_ARGS="--memory 256m"
+```
+
+**`bot.env`:**
+```bash
+DISCORD_BOT_TOKEN=xxxx
+API_KEY=yyyy
+```
+
+---
+
+## Common Mistakes
+
+| Mistake | Symptom | Fix |
+|---------|---------|-----|
+| Image has no semver tag | `no valid versioned object found` | Push `v0.1.0` — `latest` is not supported |
+| `DEWY_HEALTH_PATH` set for a non-HTTP app | Deploy hangs, container never becomes healthy | Remove `DEWY_HEALTH_PATH` |
+| Hook vars set without a `backup/` directory | Deploy aborted, hook script not found | Remove `DEWY_BEFORE/AFTER_DEPLOY_HOOK` |
+| `DEWY_PORT=8080` with no `EXPOSE` in Dockerfile | `failed to resolve port mappings` | Use `DEWY_PORT=8080:8080` |
+| Private GHCR image, no auth on VM | `401 Unauthorized` | `docker login ghcr.io` on the VM |
+| Quotes in extra `*.env` files | Env var value includes literal quotes | Remove quotes — Docker `--env-file` does not strip them |
+| `--env-file` in `DEWY_EXTRA_ARGS` | Redundant (still works) | Remove — extra `*.env` files are auto-loaded |
+
+---
+
+## Blue/Green Deployment
+
+```bash
+# Tag with build metadata to target a deployment slot
+gh release create v1.2.0+green
+
+# Run two Dewy instances, one per slot
+dewy container --registry img://ghcr.io/your-org/app --slot green ...
+dewy container --registry img://ghcr.io/your-org/app --slot blue  ...
+```
 
 ---
 
 ## Scope
 
-3DS is intentionally scoped to the **VM-internal layer**.
+3DS is scoped to the **VM-internal layer**.
 
 | Concern | Owner |
 |---|---|
 | Container deploy lifecycle | Dewy |
 | Container runtime & volumes | Docker |
-| Volume backup & pre-deploy snapshots | docker-volume-backup |
+| Volume backup (optional) | docker-volume-backup |
 | Node-level failover | Your infrastructure (Proxmox HA, ASG, etc.) |
-| VM-level backup & snapshots | Your infrastructure (PBS, AWS Snapshots, etc.) |
-| Service discovery / load balancing | Your infrastructure (Nginx, Traefik, etc.) |
-
-This boundary means 3DS runs identically on Proxmox VE, AWS EC2, a Hetzner VPS, or a bare-metal server. Infrastructure-specific setup lives in `docs/infrastructure-notes.md` and is never a dependency of the core stack.
+| Secrets management | External (Vault, AWS SSM, etc.) |
 
 ---
 
 ## Limitations
 
-- **Single-node replica management only** — Dewy's `--replicas` runs multiple containers on one VM. Cross-node scheduling requires infrastructure-level orchestration (Proxmox HA, Kubernetes, Nomad).
-- **No built-in service discovery** — use Nginx, Traefik, or a similar reverse proxy in front of the stack.
-- **No secrets management** — inject secrets via environment variables or mount from a secrets manager (HashiCorp Vault, AWS SSM, etc.).
-- **Database backup consistency** — live volume copy is not crash-consistent for most databases. Use `stop-during-backup=true` or database-native dump hooks.
+- **Single-node replicas** — `--replicas N` runs N containers on one VM. Cross-node scheduling requires infrastructure-level orchestration.
+- **No built-in service discovery** — put Nginx or Traefik in front.
+- **No secrets management** — inject via env files or a secrets manager.
 
 ---
 
 ## License
 
-MIT
-
----
+MIT — see [LICENSE](LICENSE).
 
 ## Acknowledgements
 
-3DS stands on the shoulders of three excellent open-source projects:
-
-- [linyows/dewy](https://github.com/linyows/dewy) — declarative deployment for non-Kubernetes environments
-- [Docker](https://www.docker.com/) — the container runtime the world runs on
-- [offen/docker-volume-backup](https://github.com/offen/docker-volume-backup) — simple, reliable Docker volume backups
+- [linyows/dewy](https://github.com/linyows/dewy)
+- [Docker](https://www.docker.com/)
+- [offen/docker-volume-backup](https://github.com/offen/docker-volume-backup)

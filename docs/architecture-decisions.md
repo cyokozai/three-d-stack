@@ -1,65 +1,36 @@
 # Architecture Decisions — Three-D Stack (3DS)
 
-_Date: 2026-04-08_
+_Last updated: 2026-04-12_
 
 ---
 
-## Repository Structure
+## Directory Structure
 
 ```
 three-d-stack/
-├── apps/                          # Per-application directories
+├── apps/
 │   └── sample-app/
-│       ├── dewy.env.example       # Dewy config template (committed; copy to dewy.env to use)
-│       └── backup/                # Optional: DVB backup sub-tree (omit if no backup needed)
+│       ├── dewy.env.example
+│       └── backup/                    # optional — only for apps that need DVB
 │           ├── hooks/
-│           │   ├── before-deploy.sh   # Trigger DVB snapshot before deploy
-│           │   └── after-deploy.sh    # Post-deploy notification
-│           └── compose.yaml           # Peripheral services (DB, DVB, etc.)
+│           │   ├── before-deploy.sh
+│           │   └── after-deploy.sh
+│           └── compose.yaml
 ├── core/
 │   └── global-hooks/
-│       ├── backup.sh              # Reusable DVB backup logic
-│       └── notify.sh              # Reusable notification logic
+│       ├── backup.sh
+│       └── notify.sh
 ├── ansible/
 │   ├── inventories/
-│   │   ├── local/                 # OrbStack / VirtualBox test VMs
-│   │   └── proxmox/               # Proxmox VE production
+│   │   ├── local/                     # OrbStack
+│   │   └── proxmox/                   # Proxmox VE
 │   ├── playbooks/
-│   │   ├── setup-node.yml         # Bootstrap a VM for 3DS
-│   │   └── deploy-app.yml         # Deploy / update an application
+│   │   ├── setup-node.yml
+│   │   └── deploy-app.yml
 │   └── roles/
-│       ├── 3ds_base/              # Docker install, network setup, directory layout
-│       └── dewy_setup/            # Dewy binary, systemd service per app
-├── .devcontainer/
-│   └── devcontainer.json          # Contributor development environment
-├── docs/
-├── .github/
-│   ├── ISSUE_TEMPLATE/
-│   └── workflows/
-│       └── lint.yml               # yamllint / shellcheck / ansible-lint (planned: v0.3.0)
-└── README.md
-```
-
----
-
-## Dewy App Configuration Pattern (`dewy.env.example` / `dewy.env`)
-
-Each app ships a committed `apps/<app>/dewy.env.example` template.
-Operators copy it to `dewy.env` (gitignored) and fill in real values.
-The Ansible `dewy_setup` role transfers `dewy.env` to the VM and loads it via systemd `EnvironmentFile=`.
-
-```bash
-# apps/sample-app/dewy.env.example
-DEWY_REGISTRY=img://ghcr.io/your-org/sample-app
-DEWY_PORT=8080
-DEWY_HEALTH_PATH=/health
-DEWY_REPLICAS=2
-DEWY_BEFORE_DEPLOY_HOOK=./backup/hooks/before-deploy.sh
-DEWY_AFTER_DEPLOY_HOOK=./backup/hooks/after-deploy.sh
-DEWY_NOTIFIER=slack://your-channel?title=sample-app
-
-# Extra args passed to docker run (after Dewy's -- separator)
-DEWY_EXTRA_ARGS="-v app-data:/data --memory 512m"
+│       ├── 3ds_base/
+│       └── dewy_setup/
+└── docs/
 ```
 
 ---
@@ -68,19 +39,36 @@ DEWY_EXTRA_ARGS="-v app-data:/data --memory 512m"
 
 ### `3ds_base`
 
-Responsibilities:
-- Install Docker via official apt/yum repository
-- Configure Docker daemon
+- Install Docker via official apt repository (Debian/Ubuntu)
+- Skip Docker install if already present (`docker --version` check)
 - Create shared Docker network (`3ds-net`)
-- Provision `/opt/3ds/apps/<app>/` directory structure on target VM
+- Provision `/opt/3ds/apps/` on the target VM
 
 ### `dewy_setup`
 
-Responsibilities:
-- Download Dewy binary from GitHub Releases (version-pinned)
-- Deploy app files from repository to `/opt/3ds/apps/<app>/`
-- Generate systemd unit file from template (one unit per app)
-- Enable and start the service
+- Download Dewy binary from GitHub Releases (version-pinned, arch auto-detected)
+- Copy app files from control node to VM using `apps_dir` variable
+- Auto-copy all `*.env` files (except `dewy.env`) as extra env files for the container
+- Copy `backup/` subdirectory (hooks, compose.yaml) only if it exists
+- Generate `dewy-start.sh` wrapper script (handles word-splitting of `DEWY_EXTRA_ARGS`)
+- Generate systemd unit file per app (`dewy-<app>.service`)
+- Enable and start service only if `dewy.env` exists on control node
+
+**`apps_dir` variable (kubespray-style):**
+
+```yaml
+# default: two levels above playbook dir (= repo root)/apps
+apps_dir: "{{ playbook_dir | dirname | dirname }}/apps"
+```
+
+Override to point at a separate infra repo:
+```bash
+ansible-playbook ... -e "apps_dir=/path/to/infra/apps"
+```
+
+**`dewy-start.sh` — why a wrapper script:**
+
+systemd `ExecStart=` does not word-split variable expansions. `DEWY_EXTRA_ARGS="--memory 512m --cpus 1"` passed directly to `ExecStart=` becomes a single argument. The wrapper shell script delegates splitting to `sh`, and also dynamically collects `--env-file` arguments from all `*.env` files in the app directory.
 
 **systemd unit template:**
 
@@ -91,16 +79,9 @@ After=docker.service
 Requires=docker.service
 
 [Service]
-EnvironmentFile=/opt/3ds/apps/{{ app_name }}/dewy.env
-WorkingDirectory=/opt/3ds/apps/{{ app_name }}
-ExecStart=/usr/local/bin/dewy container \
-  --registry ${DEWY_REGISTRY} \
-  --port ${DEWY_PORT} \
-  --health-path ${DEWY_HEALTH_PATH} \
-  --replicas ${DEWY_REPLICAS} \
-  --before-deploy-hook ${DEWY_BEFORE_DEPLOY_HOOK} \
-  --after-deploy-hook ${DEWY_AFTER_DEPLOY_HOOK} \
-  -- ${DEWY_EXTRA_ARGS}
+EnvironmentFile={{ three_ds_apps_dir }}/{{ app_name }}/dewy.env
+WorkingDirectory={{ three_ds_apps_dir }}/{{ app_name }}
+ExecStart={{ three_ds_apps_dir }}/{{ app_name }}/dewy-start.sh
 Restart=on-failure
 
 [Install]
@@ -109,76 +90,54 @@ WantedBy=multi-user.target
 
 ---
 
-## DevContainer Toolchain (Contributor Environment)
+## `backup/` subdirectory pattern
 
-| Tool | Purpose |
-|------|---------|
-| `ansible-core` + `ansible-lint` | Playbook / Role development and static analysis |
-| `yamllint` | YAML file validation |
-| `shellcheck` | Hook script static analysis |
-| `docker-cli` | Local smoke testing (daemon runs on host) |
-| `molecule` | Ansible Role unit testing (Docker driver) |
-
----
-
-## CI Pipeline (GitHub Actions)
+Apps that need DVB backup place all backup-related files under `backup/`:
 
 ```
-push / PR
-  └── lint.yml
-        ├── shellcheck: apps/**/hooks/*.sh core/global-hooks/*.sh
-        ├── yamllint:   apps/**/compose.yaml ansible/**/*.yml
-        └── ansible-lint: ansible/
+my-app/
+├── dewy.env
+└── backup/
+    ├── hooks/
+    │   ├── before-deploy.sh   # triggers DVB snapshot via docker run
+    │   └── after-deploy.sh
+    └── compose.yaml           # DB + DVB scheduled daemon
 ```
 
-Future addition: Molecule-based Role integration tests.
+Apps without backup (bots, workers) need only `dewy.env` and any extra `*.env` files. The Ansible role detects `backup/` presence with `stat` and skips backup-related copy tasks when absent.
 
 ---
 
-## Development Process
-
-Lightweight GitHub Flow for solo OSS:
-
-| Branch | Purpose |
-|--------|---------|
-| `main` | Always releasable |
-| `dev` | Integration branch |
-| `feat/*` | Feature branches (per GitHub Issue) |
-
----
-
-## System Architecture Diagram
+## System Diagram
 
 ```mermaid
 graph TD
     OCI["OCI Registry\n(GHCR / ECR / GAR)"]
-    Dewy["Dewy\n(systemd service)\npoll & docker run"]
-    App["Application Container\n(managed by Dewy)"]
-    Compose["Docker Compose\n(DB / Redis / DVB)"]
-    DVB["docker-volume-backup\n(pre-deploy snapshot\n+ scheduled backup)"]
+    Dewy["Dewy\n(systemd service)"]
+    App["Application Container"]
+    DVB["docker-volume-backup\n(optional)"]
     S3["Backup Storage\n(S3 / local / SSH)"]
     Ansible["Ansible\n(setup-node / deploy-app)"]
     VM["Linux VM\n(Proxmox VE / EC2 / VPS)"]
-    Infra["Infrastructure Layer\n(Proxmox HA / ASG)\nnode-level failover"]
+    Infra["Infrastructure\n(Proxmox HA / ASG)"]
 
     Ansible -->|provision| VM
     VM --> Dewy
-    VM --> Compose
     OCI -->|poll on new semver tag| Dewy
     Dewy -->|docker run| App
     Dewy -->|before-deploy-hook| DVB
-    Compose --> DVB
     DVB -->|snapshot / backup| S3
     Infra -.->|node failover| VM
 ```
 
 ---
 
-## Trade-offs & Risks
+## Trade-offs
 
 | Decision | Trade-off |
 |----------|-----------|
-| Dewy over docker-compose for app lifecycle | Dewy is a smaller community project; if it becomes unmaintained, the core deploy mechanism needs replacement |
-| Single-node replica management | Dewy replicas run on one VM; cross-node HA requires infrastructure layer |
-| Ansible for distribution | Requires Ansible on the operator's machine; lower barrier than custom CLI but higher than a single shell script |
-| No built-in secrets management | Users must wire in Vault / SSM / etc. themselves |
+| Dewy over Compose for app lifecycle | Dewy is a smaller community project — if unmaintained, core deploy mechanism needs replacement |
+| Single-node replicas | Cross-node HA requires infrastructure layer |
+| Ansible for distribution | Requires Ansible on operator's machine |
+| No built-in secrets management | Users must wire in Vault / SSM / etc. |
+| `backup/` optional subdirectory | Cleaner separation but operators must know the pattern |
