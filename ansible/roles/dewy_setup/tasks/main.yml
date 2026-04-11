@@ -140,23 +140,24 @@
   loop_control:
     label: "{{ item.item }}"
 
-- name: Check if app.env exists on control node
-  ansible.builtin.stat:
-    path: "{{ apps_dir }}/{{ item }}/app.env"
+- name: Find extra env files on control node (all *.env except dewy.env)
+  ansible.builtin.find:
+    paths: "{{ apps_dir }}/{{ item }}"
+    patterns: "*.env"
+    excludes: "dewy.env"
   delegate_to: localhost
   become: false
-  register: app_env_stat
+  register: extra_env_files
   loop: "{{ _dewy_apps }}"
 
-- name: Copy app.env to VM (if present on control node)
+- name: Copy extra env files to VM
   ansible.builtin.copy:
-    src: "{{ apps_dir }}/{{ item.item }}/app.env"
-    dest: "{{ three_ds_apps_dir }}/{{ item.item }}/app.env"
+    src: "{{ item.1.path }}"
+    dest: "{{ three_ds_apps_dir }}/{{ item.0.item }}/{{ item.1.path | basename }}"
     mode: "0600"
-  loop: "{{ app_env_stat.results }}"
-  when: item.stat.exists
+  loop: "{{ extra_env_files.results | subelements('files') }}"
   loop_control:
-    label: "{{ item.item }}"
+    label: "{{ item.0.item }}/{{ item.1.path | basename }}"
 
 # ---- start script + systemd unit ----
 
