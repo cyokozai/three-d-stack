@@ -20,7 +20,7 @@ _docker_args="${_docker_args% }"
 
 exec {{ dewy_install_dir }}/dewy container \
   --registry "${DEWY_REGISTRY}" \
-  --port "${DEWY_PORT}" \
+  ${DEWY_PORT:+--port} ${DEWY_PORT} \
   ${DEWY_HEALTH_PATH:+--health-path} ${DEWY_HEALTH_PATH} \
   ${DEWY_REPLICAS:+--replicas} ${DEWY_REPLICAS} \
   ${DEWY_BEFORE_DEPLOY_HOOK:+--before-deploy-hook} ${DEWY_BEFORE_DEPLOY_HOOK} \
