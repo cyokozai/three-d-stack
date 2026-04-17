@@ -163,6 +163,7 @@
     paths: "{{ apps_dir }}/{{ item }}"
     patterns: "*.env"
     excludes: "dewy.env"
+    hidden: true
   delegate_to: localhost
   become: false
   register: extra_env_files
