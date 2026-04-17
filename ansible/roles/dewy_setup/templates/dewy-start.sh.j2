@@ -6,9 +6,10 @@
 # expansions, so DEWY_EXTRA_ARGS="--memory 128m --cpus 0.5" would be passed
 # as a single argument to docker. This shell script handles splitting correctly.
 
-# Collect --env-file args from all *.env files in the app dir, except dewy.env
+# Collect --env-file args from all *.env files in the app dir, except dewy.env.
+# Explicitly include .env because POSIX glob *.env does not match hidden files.
 _env_file_args=""
-for _f in {{ three_ds_apps_dir }}/{{ app_name }}/*.env; do
+for _f in {{ three_ds_apps_dir }}/{{ app_name }}/*.env {{ three_ds_apps_dir }}/{{ app_name }}/.env; do
   [ -f "$_f" ] || continue
   [ "$(basename "$_f")" = "dewy.env" ] && continue
   _env_file_args="$_env_file_args --env-file $_f"
