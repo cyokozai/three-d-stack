@@ -6,9 +6,10 @@
 # expansions, so DEWY_EXTRA_ARGS="--memory 128m --cpus 0.5" would be passed
 # as a single argument to docker. This shell script handles splitting correctly.
 
-# Collect --env-file args from all *.env files in the app dir, except dewy.env
+# Collect --env-file args from all *.env files in the app dir, except dewy.env.
+# Explicitly include .env because POSIX glob *.env does not match hidden files.
 _env_file_args=""
-for _f in {{ three_ds_apps_dir }}/{{ app_name }}/*.env; do
+for _f in {{ three_ds_apps_dir }}/{{ app_name }}/*.env {{ three_ds_apps_dir }}/{{ app_name }}/.env; do
   [ -f "$_f" ] || continue
   [ "$(basename "$_f")" = "dewy.env" ] && continue
   _env_file_args="$_env_file_args --env-file $_f"
@@ -18,12 +19,15 @@ done
 _docker_args="${_env_file_args# } ${DEWY_EXTRA_ARGS}"
 _docker_args="${_docker_args% }"
 
-exec {{ dewy_install_dir }}/dewy container \
-  --registry "${DEWY_REGISTRY}" \
-  ${DEWY_PORT:+--port} ${DEWY_PORT} \
-  ${DEWY_HEALTH_PATH:+--health-path} ${DEWY_HEALTH_PATH} \
-  ${DEWY_REPLICAS:+--replicas} ${DEWY_REPLICAS} \
-  ${DEWY_BEFORE_DEPLOY_HOOK:+--before-deploy-hook} ${DEWY_BEFORE_DEPLOY_HOOK} \
-  ${DEWY_AFTER_DEPLOY_HOOK:+--after-deploy-hook} ${DEWY_AFTER_DEPLOY_HOOK} \
-  ${DEWY_NOTIFIER:+--notifier} ${DEWY_NOTIFIER} \
-  ${_docker_args:+--} ${_docker_args}
+# Build argument list to preserve quoting for all optional parameters
+set -- --registry "${DEWY_REGISTRY}"
+[ -n "${DEWY_PORT:-}" ]               && set -- "$@" --port "${DEWY_PORT}"
+[ -n "${DEWY_HEALTH_PATH:-}" ]        && set -- "$@" --health-path "${DEWY_HEALTH_PATH}"
+[ -n "${DEWY_REPLICAS:-}" ]           && set -- "$@" --replicas "${DEWY_REPLICAS}"
+[ -n "${DEWY_BEFORE_DEPLOY_HOOK:-}" ] && set -- "$@" --before-deploy-hook "${DEWY_BEFORE_DEPLOY_HOOK}"
+[ -n "${DEWY_AFTER_DEPLOY_HOOK:-}" ]  && set -- "$@" --after-deploy-hook "${DEWY_AFTER_DEPLOY_HOOK}"
+[ -n "${DEWY_NOTIFIER:-}" ]           && set -- "$@" --notifier "${DEWY_NOTIFIER}"
+# shellcheck disable=SC2086  # _docker_args is intentionally word-split here
+[ -n "${_docker_args}" ]              && set -- "$@" -- ${_docker_args}
+
+exec {{ dewy_install_dir }}/dewy container "$@"

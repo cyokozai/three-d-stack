@@ -2,3 +2,9 @@
 - name: Reload systemd
   ansible.builtin.systemd:
     daemon_reload: true
+
+- name: Restart Dewy service
+  ansible.builtin.systemd:
+    name: "dewy-{{ item }}.service"
+    state: restarted
+  loop: "{{ _dewy_apps }}"

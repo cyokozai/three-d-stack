@@ -146,6 +146,7 @@
   when: item.stat.exists
   loop_control:
     label: "{{ item.item }}"
+  notify: Restart Dewy service
 
 - name: Warn if dewy.env is missing on control node
   ansible.builtin.debug:
@@ -163,6 +164,7 @@
     paths: "{{ apps_dir }}/{{ item }}"
     patterns: "*.env"
     excludes: "dewy.env"
+    hidden: true
   delegate_to: localhost
   become: false
   register: extra_env_files
@@ -176,6 +178,7 @@
   loop: "{{ extra_env_files.results | subelements('files') }}"
   loop_control:
     label: "{{ item.0.item }}/{{ item.1.path | basename }}"
+  notify: Restart Dewy service
 
 # ---- start script + systemd unit ----
 
